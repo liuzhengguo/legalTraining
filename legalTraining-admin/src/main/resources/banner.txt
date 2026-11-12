@@ -1,0 +1,2 @@
+legalTraining ${legal-training.version}
+Spring Boot ${spring-boot.version}
