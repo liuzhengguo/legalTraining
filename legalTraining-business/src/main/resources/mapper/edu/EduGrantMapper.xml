@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduGrantMapper">
+
+    <select id="countPendingReviews" resultType="int">
+        select count(1)
+        from edu_submission s
+        join edu_task t on t.task_id = s.task_id
+        join edu_course c on c.course_id = t.course_id
+        where c.teacher_id = #{teacherId} and s.status = 2 and t.del_flag = '0'
+    </select>
+
+    <select id="countPendingAudits" resultType="int">
+        select count(1) from edu_recommendation where status = 1
+    </select>
+
+    <select id="selectClassDeptId" resultType="java.lang.Long">
+        select dept_id from edu_class where class_id = #{classId} and del_flag = '0'
+    </select>
+
+    <select id="selectClassHeadTeacher" resultType="java.lang.Long">
+        select head_teacher from edu_class where class_id = #{classId} and del_flag = '0'
+    </select>
+
+    <select id="selectCourseTeacherId" resultType="java.lang.Long">
+        select teacher_id from edu_course where course_id = #{courseId} and del_flag = '0'
+    </select>
+
+    <select id="selectStudentClassId" resultType="java.lang.Long">
+        select class_id from edu_class_student
+        where user_id = #{userId} and is_current = '1'
+        limit 1
+    </select>
+
+</mapper>

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduClassMapper">
+
+    <resultMap type="EduClass" id="EduClassResult">
+        <id     property="classId"         column="class_id"          />
+        <result property="termId"          column="term_id"           />
+        <result property="termName"        column="term_name"         />
+        <result property="classCode"       column="class_code"        />
+        <result property="className"       column="class_name"        />
+        <result property="deptId"          column="dept_id"           />
+        <result property="deptName"        column="dept_name"         />
+        <result property="majorId"         column="major_id"          />
+        <result property="majorName"       column="major_name"        />
+        <result property="gradeYear"       column="grade_year"        />
+        <result property="headTeacher"     column="head_teacher"      />
+        <result property="headTeacherName" column="head_teacher_name" />
+        <result property="studentCount"    column="student_count"     />
+        <result property="status"          column="status"            />
+        <result property="delFlag"         column="del_flag"          />
+        <result property="createBy"        column="create_by"         />
+        <result property="createTime"      column="create_time"       />
+        <result property="updateBy"        column="update_by"         />
+        <result property="updateTime"      column="update_time"       />
+        <result property="remark"          column="remark"            />
+    </resultMap>
+
+    <sql id="selectEduClassVo">
+        select c.class_id, c.term_id, t.term_name, c.class_code, c.class_name,
+               c.dept_id, d.dept_name, c.major_id, m.major_name,
+               c.grade_year, c.head_teacher, u.nick_name as head_teacher_name,
+               c.student_count, c.status, c.del_flag,
+               c.create_by, c.create_time, c.update_by, c.update_time, c.remark
+        from edu_class c
+        left join edu_term t  on t.term_id = c.term_id
+        left join sys_dept d  on d.dept_id = c.dept_id
+        left join edu_major m on m.major_id = c.major_id
+        left join sys_user u  on u.user_id = c.head_teacher
+    </sql>
+
+    <select id="selectEduClassById" parameterType="Long" resultMap="EduClassResult">
+        <include refid="selectEduClassVo"/>
+        where c.class_id = #{classId} and c.del_flag = '0'
+    </select>
+
+    <select id="selectEduClassList" parameterType="EduClass" resultMap="EduClassResult">
+        <include refid="selectEduClassVo"/>
+        <where>
+            c.del_flag = '0'
+            <if test="termId != null">and c.term_id = #{termId}</if>
+            <if test="classCode != null and classCode != ''">
+                and c.class_code like concat('%', #{classCode}, '%')
+            </if>
+            <if test="className != null and className != ''">
+                and c.class_name like concat('%', #{className}, '%')
+            </if>
+            <if test="deptId != null">and c.dept_id = #{deptId}</if>
+            <if test="majorId != null">and c.major_id = #{majorId}</if>
+            <if test="headTeacher != null">and c.head_teacher = #{headTeacher}</if>
+            <if test="gradeYear != null">and c.grade_year = #{gradeYear}</if>
+            <if test="status != null">and c.status = #{status}</if>
+        </where>
+        order by c.term_id desc, c.class_code
+    </select>
+
+    <insert id="insertEduClass" parameterType="EduClass" useGeneratedKeys="true" keyProperty="classId">
+        insert into edu_class (term_id, class_code, class_name, dept_id, major_id, grade_year,
+                               head_teacher, student_count, status, del_flag,
+                               create_by, create_time, remark)
+        values (#{termId}, #{classCode}, #{className}, #{deptId}, #{majorId}, #{gradeYear},
+                #{headTeacher}, 0, #{status}, '0',
+                #{createBy}, sysdate(), #{remark})
+    </insert>
+
+    <update id="updateEduClass" parameterType="EduClass">
+        update edu_class
+        <set>
+            <if test="termId != null">term_id = #{termId},</if>
+            <if test="classCode != null and classCode != ''">class_code = #{classCode},</if>
+            <if test="className != null and className != ''">class_name = #{className},</if>
+            <if test="deptId != null">dept_id = #{deptId},</if>
+            <if test="majorId != null">major_id = #{majorId},</if>
+            <if test="gradeYear != null">grade_year = #{gradeYear},</if>
+            <if test="headTeacher != null">head_teacher = #{headTeacher},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = sysdate()
+        </set>
+        where class_id = #{classId}
+    </update>
+
+    <update id="deleteEduClassByIds" parameterType="Long">
+        update edu_class set del_flag = '2' where class_id in
+        <foreach collection="array" item="classId" open="(" separator="," close=")">
+            #{classId}
+        </foreach>
+    </update>
+
+    <select id="countByTermAndCode" resultType="int">
+        select count(1) from edu_class
+        where term_id = #{termId} and class_code = #{classCode} and del_flag = '0'
+        <if test="excludeId != null">and class_id != #{excludeId}</if>
+    </select>
+
+    <select id="selectByTermAndCode" resultMap="EduClassResult">
+        <include refid="selectEduClassVo"/>
+        where c.term_id = #{termId} and c.class_code = #{classCode} and c.del_flag = '0'
+        limit 1
+    </select>
+
+    <select id="countCurrentStudents" resultType="int">
+        select count(1) from edu_class_student
+        where class_id = #{classId} and is_current = '1'
+    </select>
+
+    <update id="updateStudentCount">
+        update edu_class set student_count = #{count}, update_time = sysdate()
+        where class_id = #{classId}
+    </update>
+
+    <update id="archiveByTerm">
+        update edu_class set status = 1, update_time = sysdate()
+        where term_id = #{termId} and del_flag = '0' and status = 0
+    </update>
+    <!-- 进行中任务：任务没有 class_id，必须经参与人快照回到班级 -->
+    <select id="countInProgressTasks" resultType="int">
+        select count(distinct t.task_id)
+        from edu_task t
+        join edu_task_participant p on p.task_id = t.task_id
+        join edu_class_student cs on cs.user_id = p.user_id
+        where cs.class_id = #{classId} and cs.is_current = '1'
+          and t.status = 1 and t.del_flag = '0'
+    </select>
+
+</mapper>

@@ -162,6 +162,13 @@
                 <version>${legalTraining.version}</version>
             </dependency>
 
+            <!-- 业务模块（教学 / 展厅 / 运营）-->
+            <dependency>
+                <groupId>com.legaltraining</groupId>
+                <artifactId>legalTraining-business</artifactId>
+                <version>${legalTraining.version}</version>
+            </dependency>
+
             <!-- 通用工具-->
             <dependency>
                 <groupId>com.legaltraining</groupId>
@@ -176,6 +183,7 @@
         <module>legalTraining-admin</module>
         <module>legalTraining-framework</module>
         <module>legalTraining-system</module>
+        <module>legalTraining-business</module>
         <module>legalTraining-quartz</module>
         <module>legalTraining-generator</module>
         <module>legalTraining-common</module>

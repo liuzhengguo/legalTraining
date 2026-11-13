@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduCourseMapper">
+
+    <resultMap type="EduCourse" id="EduCourseResult">
+        <id     property="courseId"      column="course_id"      />
+        <result property="courseCode"    column="course_code"    />
+        <result property="courseName"    column="course_name"    />
+        <result property="termId"        column="term_id"        />
+        <result property="termName"      column="term_name"      />
+        <result property="teacherId"     column="teacher_id"     />
+        <result property="teacherName"   column="teacher_name"   />
+        <result property="classId"       column="class_id"       />
+        <result property="className"     column="class_name"     />
+        <result property="cover"         column="cover"          />
+        <result property="intro"         column="intro"          />
+        <result property="status"        column="status"         />
+        <result property="copyFrom"      column="copy_from"      />
+        <result property="publishTime"   column="publish_time"   />
+        <result property="createBy"      column="create_by"      />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"      column="update_by"      />
+        <result property="updateTime"    column="update_time"    />
+        <result property="taskCount"     column="task_count"     />
+        <result property="resourceCount" column="resource_count" />
+    </resultMap>
+
+    <resultMap type="EduCourseExhibit" id="EduCourseExhibitResult">
+        <id     property="id"         column="id"          />
+        <result property="courseId"   column="course_id"   />
+        <result property="targetType" column="target_type" />
+        <result property="targetId"   column="target_id"   />
+        <result property="sortNo"     column="sort_no"     />
+    </resultMap>
+
+    <sql id="selectEduCourseVo">
+        select c.course_id, c.course_code, c.course_name, c.term_id, t.term_name,
+               c.teacher_id, u.nick_name as teacher_name,
+               c.class_id, cl.class_name, c.cover, c.intro, c.status, c.copy_from,
+               c.publish_time, c.create_by, c.create_time, c.update_by, c.update_time
+        from edu_course c
+        left join edu_term  t  on t.term_id  = c.term_id
+        left join edu_class cl on cl.class_id = c.class_id
+        left join sys_user  u  on u.user_id  = c.teacher_id
+    </sql>
+
+    <select id="selectEduCourseById" parameterType="Long" resultMap="EduCourseResult">
+        <include refid="selectEduCourseVo"/>
+        where c.course_id = #{courseId} and c.del_flag = '0'
+    </select>
+
+    <select id="selectEduCourseList" parameterType="EduCourse" resultMap="EduCourseResult">
+        <include refid="selectEduCourseVo"/>
+        <where>
+            c.del_flag = '0'
+            <if test="termId != null">and c.term_id = #{termId}</if>
+            <if test="teacherId != null">and c.teacher_id = #{teacherId}</if>
+            <if test="classId != null">and (c.class_id = #{classId}
+                or exists (select 1 from edu_course_class cc
+                           where cc.course_id = c.course_id and cc.class_id = #{classId}))</if>
+            <if test="status != null">and c.status = #{status}</if>
+            <if test="courseCode != null and courseCode != ''">
+                and c.course_code like concat('%', #{courseCode}, '%')
+            </if>
+            <if test="courseName != null and courseName != ''">
+                and c.course_name like concat('%', #{courseName}, '%')
+            </if>
+        </where>
+        order by c.term_id desc, c.course_code
+    </select>
+
+    <insert id="insertEduCourse" parameterType="EduCourse" useGeneratedKeys="true" keyProperty="courseId">
+        insert into edu_course (course_code, course_name, term_id, teacher_id, class_id, cover, intro,
+                                status, copy_from, publish_time, del_flag, create_by, create_time)
+        values (#{courseCode}, #{courseName}, #{termId}, #{teacherId}, #{classId}, #{cover}, #{intro},
+                #{status}, #{copyFrom}, #{publishTime}, '0', #{createBy}, sysdate())
+    </insert>
+
+    <update id="updateEduCourse" parameterType="EduCourse">
+        update edu_course
+        <set>
+            <if test="courseCode != null and courseCode != ''">course_code = #{courseCode},</if>
+            <if test="courseName != null and courseName != ''">course_name = #{courseName},</if>
+            <if test="termId != null">term_id = #{termId},</if>
+            <if test="teacherId != null">teacher_id = #{teacherId},</if>
+            <if test="classId != null">class_id = #{classId},</if>
+            <if test="cover != null">cover = #{cover},</if>
+            <if test="intro != null">intro = #{intro},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="publishTime != null">publish_time = #{publishTime},</if>
+            update_by = #{updateBy},
+            update_time = sysdate()
+        </set>
+        where course_id = #{courseId}
+    </update>
+
+    <update id="deleteEduCourseById" parameterType="Long">
+        update edu_course set del_flag = '2', update_time = sysdate() where course_id = #{courseId}
+    </update>
+
+    <select id="countByTermAndCode" resultType="int">
+        select count(1) from edu_course
+        where term_id = #{termId} and course_code = #{courseCode} and del_flag = '0'
+        <if test="excludeId != null">and course_id != #{excludeId}</if>
+    </select>
+
+    <select id="selectClassIds" parameterType="Long" resultType="java.lang.Long">
+        select class_id from edu_course_class where course_id = #{courseId} order by id
+    </select>
+
+    <delete id="deleteCourseClass" parameterType="Long">
+        delete from edu_course_class where course_id = #{courseId}
+    </delete>
+
+    <insert id="batchInsertCourseClass">
+        insert into edu_course_class (course_id, class_id) values
+        <foreach collection="classIds" item="cid" separator=",">
+            (#{courseId}, #{cid})
+        </foreach>
+    </insert>
+
+    <select id="selectExhibits" parameterType="Long" resultMap="EduCourseExhibitResult">
+        select id, course_id, target_type, target_id, sort_no
+        from edu_course_exhibit where course_id = #{courseId}
+        order by sort_no, id
+    </select>
+
+    <delete id="deleteCourseExhibit" parameterType="Long">
+        delete from edu_course_exhibit where course_id = #{courseId}
+    </delete>
+
+    <insert id="batchInsertCourseExhibit">
+        insert into edu_course_exhibit (course_id, target_type, target_id, sort_no) values
+        <foreach collection="list" item="it" separator=",">
+            (#{courseId}, #{it.targetType}, #{it.targetId}, #{it.sortNo})
+        </foreach>
+    </insert>
+
+    <select id="countTaskByCourse" parameterType="Long" resultType="int">
+        select count(1) from edu_task where course_id = #{courseId} and del_flag = '0'
+    </select>
+
+    <select id="countResourceByCourse" parameterType="Long" resultType="int">
+        select count(1) from edu_course_resource where course_id = #{courseId}
+    </select>
+
+    <insert id="copyResourceLinks">
+        insert into edu_course_resource (course_id, resource_id, sort_no)
+        select #{targetId}, resource_id, sort_no
+        from edu_course_resource where course_id = #{sourceId}
+    </insert>
+
+    <select id="selectOfflineResourceTitles" resultType="string">
+        select distinct r.title from edu_resource r
+        where (r.status &lt;&gt; 0 or r.del_flag &lt;&gt; '0') and (
+            exists(select 1 from edu_course_resource cr where cr.course_id=#{courseId} and cr.resource_id=r.resource_id)
+            or exists(select 1 from edu_task_resource tr join edu_task t on t.task_id=tr.task_id
+                      where t.course_id=#{courseId} and t.del_flag='0' and tr.resource_id=r.resource_id))
+        order by r.title
+    </select>
+
+</mapper>

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>网页版展厅 · 版式走查</title>
+<style>
+  /* 与 src/styles/base.css 同一套变量：主色 #409EFF / 副色 #3A71A8 / 底色 #141824 / 面板 #1A1F2E */
+  :root {
+    --ex-bg: #141824;
+    --ex-panel: #1a1f2e;
+    --ex-text: #eef1f6;
+    --ex-sub: #9aa4b2;
+    --ex-accent: #409EFF;
+    --ex-accent-2: #3A71A8;
+    --ex-radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--ex-bg); color: var(--ex-text);
+    font: 16px/1.6 "PingFang SC", "Microsoft YaHei", sans-serif;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  /* 顶部条：展厅前台没有后台导航，只有返回与版式切换 */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 12px 24px;
+    background: rgba(20, 24, 36, 0.82);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .topbar__brand { font-size: 15px; letter-spacing: 2px; color: var(--ex-sub); }
+  .switcher { display: flex; gap: 6px; }
+  .switcher button {
+    padding: 6px 14px; font-size: 13px; cursor: pointer;
+    color: var(--ex-sub); background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 999px;
+    transition: all .16s ease;
+  }
+  .switcher button[aria-pressed="true"] {
+    color: #fff; background: rgba(64, 158, 255, 0.18); border-color: var(--ex-accent);
+  }
+
+  .zone-page { max-width: 1280px; margin: 0 auto; padding: 20px 24px 96px; }
+
+  /* 展区头图：静态图 + 渐变遮罩，热点叠在上面 */
+  .zone-hero {
+    position: relative; height: 40vh; min-height: 300px;
+    border-radius: var(--ex-radius); overflow: hidden;
+    background:
+      radial-gradient(120% 90% at 18% 10%, rgba(64,158,255,.34), transparent 55%),
+      radial-gradient(90% 80% at 88% 78%, rgba(58,113,168,.34), transparent 60%),
+      linear-gradient(135deg, #232c40 0%, #141824 72%);
+  }
+  /* 模拟"庭审现场"照片的暗调质感 */
+  .zone-hero::after {
+    content: ''; position: absolute; inset: 0;
+    background-image:
+      repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 56px),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.04) 0 1px, transparent 1px 56px);
+    -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.5), transparent 70%);
+    mask-image: linear-gradient(180deg, rgba(0,0,0,.5), transparent 70%);
+  }
+  .zone-hero__mask {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(20,24,36,0) 36%, rgba(20,24,36,.94) 100%);
+  }
+  .zone-hero__title {
+    position: absolute; left: 32px; bottom: 26px; z-index: 2;
+    margin: 0; font-size: clamp(24px, 3.2vw, 34px); letter-spacing: 1px;
+  }
+  .zone-hero__meta {
+    position: absolute; left: 32px; bottom: 4px; z-index: 2;
+    color: var(--ex-sub); font-size: 13px;
+  }
+  .zone-hero__tag {
+    position: absolute; right: 28px; top: 24px; z-index: 2;
+    padding: 5px 12px; font-size: 12px; border-radius: 999px;
+    color: #bfdbfe; background: rgba(64,158,255,.16);
+    border: 1px solid rgba(64,158,255,.4);
+  }
+
+  /* 热点：exh_zone_spot.pos_x / pos_y 归一化坐标 */
+  .zone-spot {
+    position: absolute; z-index: 3;
+    width: 20px; height: 20px; padding: 0;
+    border-radius: 50%; border: 2px solid #fff;
+    background: var(--ex-accent);
+    box-shadow: 0 0 0 8px rgba(64,158,255,.22);
+    cursor: pointer;
+  }
+  .zone-spot::after {
+    content: attr(data-label);
+    position: absolute; left: 50%; top: -34px; transform: translateX(-50%);
+    white-space: nowrap; font-size: 12px; padding: 3px 10px;
+    border-radius: 8px; background: rgba(10,12,17,.9);
+    border: 1px solid rgba(255,255,255,.14); color: var(--ex-text);
+    opacity: 0; transition: opacity .16s ease;
+  }
+  .zone-spot:hover::after, .zone-spot:focus-visible::after { opacity: 1; }
+
+  .layout-note {
+    margin: 18px 0 4px; color: var(--ex-sub); font-size: 13px;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .layout-note b { color: #cbd5e1; font-weight: 600; }
+
+  /* ---------- 版式 1：图墙 ---------- */
+  .zone-layout--grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+    gap: 20px; margin-top: 22px;
+  }
+  /* ---------- 版式 2：长页 ---------- */
+  .zone-layout--flow { margin-top: 22px; }
+  .zone-layout--flow .item-card { margin-bottom: 26px; display: grid; grid-template-columns: 320px 1fr; }
+  .zone-layout--flow .item-card__cover { aspect-ratio: auto; height: 100%; min-height: 180px; }
+  /* ---------- 版式 3：时间轴 ---------- */
+  .zone-layout--timeline {
+    margin-top: 22px; padding-left: 30px;
+    border-left: 1px solid rgba(255,255,255,.12);
+  }
+  .zone-layout--timeline .item-card { position: relative; margin-bottom: 22px; }
+  .zone-layout--timeline .item-card::before {
+    content: ''; position: absolute; left: -36px; top: 26px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--ex-accent); box-shadow: 0 0 0 4px rgba(64,158,255,.16);
+  }
+  .zone-layout--timeline .year {
+    font-size: 12px; color: var(--ex-accent); letter-spacing: 1px; margin-bottom: 4px;
+  }
+
+  .item-card {
+    display: block; background: var(--ex-panel);
+    border-radius: var(--ex-radius); overflow: hidden;
+    border: 1px solid rgba(255,255,255,.05);
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .item-card:hover {
+    transform: translateY(-2px); border-color: rgba(64,158,255,.35);
+    box-shadow: 0 10px 28px rgba(0,0,0,.42);
+  }
+  .item-card__cover {
+    width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block;
+    background: linear-gradient(135deg, #232c40, #171d2b);
+    position: relative;
+  }
+  .item-card__cover span {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    color: rgba(255,255,255,.26); font-size: 13px; letter-spacing: 3px;
+  }
+  .item-card__body { padding: 14px 16px 18px; }
+  .item-card__title { margin: 0 0 6px; font-size: 16px; }
+  .item-card__summary { margin: 0; color: var(--ex-sub); font-size: 13px; }
+  .item-card__foot {
+    margin-top: 10px; display: flex; gap: 10px; align-items: center;
+    color: #6b7686; font-size: 12px;
+  }
+  .badge {
+    padding: 2px 8px; border-radius: 6px; font-size: 11px;
+    background: rgba(255,255,255,.06); color: #9aa4b2;
+  }
+  .badge--video { background: rgba(34,197,94,.14); color: #86efac; }
+  .badge--audio { background: rgba(250,204,21,.14); color: #fde68a; }
+
+  .foot-note {
+    margin-top: 56px; padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,.07);
+    color: #6b7686; font-size: 12px; line-height: 1.9;
+  }
+  @media (max-width: 720px) {
+    .zone-page { padding: 12px 14px 72px; }
+    .zone-hero { height: 32vh; min-height: 220px; }
+    .zone-hero__title { left: 20px; bottom: 22px; }
+    .zone-layout--flow .item-card { grid-template-columns: 1fr; }
+    .topbar { padding: 10px 14px; }
+    .topbar__brand { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar__brand">法律实训数字展厅 · 网页版</div>
+  <div class="switcher" role="group" aria-label="展区版式">
+    <button data-layout="grid" aria-pressed="true">图墙 grid</button>
+    <button data-layout="flow" aria-pressed="false">长页 flow</button>
+    <button data-layout="timeline" aria-pressed="false">时间轴 timeline</button>
+  </div>
+</header>
+
+<main class="zone-page">
+  <section class="zone-hero">
+    <div class="zone-hero__mask"></div>
+    <span class="zone-hero__tag">对外开放</span>
+    <h1 class="zone-hero__title">庭审现场还原</h1>
+    <div class="zone-hero__meta">动线 01 · 共 6 件展项 · 参观约 8 分钟</div>
+    <button class="zone-spot" style="left:26%; top:38%" data-label="审判席"></button>
+    <button class="zone-spot" style="left:54%; top:56%" data-label="公诉席"></button>
+    <button class="zone-spot" style="left:76%; top:34%" data-label="旁听区"></button>
+  </section>
+
+  <div class="layout-note"><b id="layoutName">图墙版式</b><span id="layoutDesc">自适应栅格卡片墙，适合展项多、封面统一的展区</span></div>
+
+  <section id="zoneBody" class="zone-layout--grid"></section>
+
+  <div class="foot-note">
+    本页为版式走查用静态样例，不连接后端。真实渲染时数据来自 <code>GET /openapi/v1/zones/{id}</code> 与 <code>/items</code>，
+    展区版式取自 <code>exh_zone.layout</code>，热点坐标取自 <code>exh_zone_spot.pos_x / pos_y</code>。
+    页面不含任何三维引擎、模型或全景文件，首屏只有 HTML/CSS/图片。
+  </div>
+</main>
+
+<script>
+  const ITEMS = [
+    { title: '模拟法庭：一起合同纠纷的完整审理', summary: '从立案、举证到法庭辩论，按真实庭审流程逐环节还原，含 12 段关键节点讲解。', type: 'video', year: '2024', meta: '视频 · 18 分钟' },
+    { title: '刑事庭审席位与秩序规范', summary: '审判席、公诉席、辩护席、旁听区的空间关系与出入庭礼仪。', type: 'image', year: '2024', meta: '图文 · 6 图' },
+    { title: '证据出示的实物与电子形态', summary: '书证、物证、电子数据的当庭出示方式与质证要点。', type: 'image', year: '2023', meta: '图文 · 9 图' },
+    { title: '法庭辩论实录：正当防卫的界限', summary: '控辩双方四轮交锋的完整录音与文字整理。', type: 'audio', year: '2023', meta: '音频 · 42 分钟' },
+    { title: '书记员庭审记录实训', summary: '以三段真实庭审录音为素材，练习庭审笔录的要素完整性。', type: 'video', year: '2025', meta: '视频 · 26 分钟' },
+    { title: '少年法庭的圆桌审理', summary: '区别于普通程序的席位布置与询问方式，含两段对比影像。', type: 'image', year: '2025', meta: '图文 · 8 图' }
+  ]
+
+  const LAYOUTS = {
+    grid: { name: '图墙版式', desc: '自适应栅格卡片墙，适合展项多、封面统一的展区' },
+    flow: { name: '长页版式', desc: '左图右文单列长滚动，适合叙事型展区' },
+    timeline: { name: '时间轴版式', desc: '按年份纵向排列，适合历史沿革、发展脉络类展区' }
+  }
+
+  const badge = (t) => t === 'video' ? '<span class="badge badge--video">视频</span>'
+    : t === 'audio' ? '<span class="badge badge--audio">音频</span>'
+    : '<span class="badge">图文</span>'
+
+  function card(it, layout) {
+    const year = layout === 'timeline' ? `<div class="year">${it.year}</div>` : ''
+    const cover = layout === 'flow' ? '' : `<div class="item-card__cover"><span>展项封面</span></div>`
+    if (layout === 'flow') {
+      return `<a class="item-card" href="#">
+        <div class="item-card__cover"><span>展项封面</span></div>
+        <div class="item-card__body">${year}<h3 class="item-card__title">${it.title}</h3>
+        <p class="item-card__summary">${it.summary}</p>
+        <div class="item-card__foot">${badge(it.type)}<span>${it.meta}</span></div></div></a>`
+    }
+    return `<a class="item-card" href="#">${cover}
+      <div class="item-card__body">${year}<h3 class="item-card__title">${it.title}</h3>
+      <p class="item-card__summary">${it.summary}</p>
+      <div class="item-card__foot">${badge(it.type)}<span>${it.meta}</span></div></div></a>`
+  }
+
+  function render(layout) {
+    const body = document.getElementById('zoneBody')
+    body.className = 'zone-layout--' + layout
+    const list = layout === 'timeline' ? [...ITEMS].sort((a, b) => a.year - b.year) : ITEMS
+    body.innerHTML = list.map((it) => card(it, layout)).join('')
+    document.getElementById('layoutName').textContent = LAYOUTS[layout].name
+    document.getElementById('layoutDesc').textContent = LAYOUTS[layout].desc
+    document.querySelectorAll('.switcher button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.layout === layout))
+    })
+  }
+
+  document.querySelectorAll('.switcher button').forEach((b) => {
+    b.addEventListener('click', () => render(b.dataset.layout))
+  })
+  render('grid')
+</script>
+</body>
+</html>

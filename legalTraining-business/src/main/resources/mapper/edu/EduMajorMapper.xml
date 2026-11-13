@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduMajorMapper">
+
+    <resultMap type="EduMajor" id="EduMajorResult">
+        <id     property="majorId"    column="major_id"    />
+        <result property="deptId"     column="dept_id"     />
+        <result property="deptName"   column="dept_name"   />
+        <result property="majorCode"  column="major_code"  />
+        <result property="majorName"  column="major_name"  />
+        <result property="degreeType" column="degree_type" />
+        <result property="status"     column="status"      />
+        <result property="createBy"   column="create_by"   />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy"   column="update_by"   />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <sql id="selectEduMajorVo">
+        select m.major_id, m.dept_id, d.dept_name, m.major_code, m.major_name,
+               m.degree_type, m.status, m.create_by, m.create_time, m.update_by, m.update_time
+        from edu_major m
+        left join sys_dept d on d.dept_id = m.dept_id
+    </sql>
+
+    <select id="selectEduMajorById" parameterType="Long" resultMap="EduMajorResult">
+        <include refid="selectEduMajorVo"/>
+        where m.major_id = #{majorId}
+    </select>
+
+    <select id="selectEduMajorList" parameterType="EduMajor" resultMap="EduMajorResult">
+        <include refid="selectEduMajorVo"/>
+        <where>
+            <if test="deptId != null">and m.dept_id = #{deptId}</if>
+            <if test="majorCode != null and majorCode != ''">
+                and m.major_code like concat('%', #{majorCode}, '%')
+            </if>
+            <if test="majorName != null and majorName != ''">
+                and m.major_name like concat('%', #{majorName}, '%')
+            </if>
+            <if test="degreeType != null and degreeType != ''">and m.degree_type = #{degreeType}</if>
+            <if test="status != null and status != ''">and m.status = #{status}</if>
+        </where>
+        order by m.dept_id, m.major_code
+    </select>
+
+    <insert id="insertEduMajor" parameterType="EduMajor" useGeneratedKeys="true" keyProperty="majorId">
+        insert into edu_major (dept_id, major_code, major_name, degree_type, status, create_by, create_time)
+        values (#{deptId}, #{majorCode}, #{majorName}, #{degreeType}, #{status}, #{createBy}, sysdate())
+    </insert>
+
+    <update id="updateEduMajor" parameterType="EduMajor">
+        update edu_major
+        <set>
+            <if test="deptId != null">dept_id = #{deptId},</if>
+            <if test="majorCode != null and majorCode != ''">major_code = #{majorCode},</if>
+            <if test="majorName != null and majorName != ''">major_name = #{majorName},</if>
+            <if test="degreeType != null">degree_type = #{degreeType},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = sysdate()
+        </set>
+        where major_id = #{majorId}
+    </update>
+
+    <delete id="deleteEduMajorByIds" parameterType="Long">
+        delete from edu_major where major_id in
+        <foreach collection="array" item="majorId" open="(" separator="," close=")">
+            #{majorId}
+        </foreach>
+    </delete>
+
+    <select id="countByCode" resultType="int">
+        select count(1) from edu_major
+        where major_code = #{majorCode}
+        <if test="excludeId != null">and major_id != #{excludeId}</if>
+    </select>
+
+    <select id="countReferencedByClass" resultType="int">
+        select count(1) from edu_class
+        where major_id = #{majorId} and del_flag = '0'
+    </select>
+
+</mapper>

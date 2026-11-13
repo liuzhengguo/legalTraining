@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduTransferMapper">
+
+    <resultMap type="EduMembership" id="EduMembershipResult">
+        <id     property="id"          column="id"          />
+        <result property="classId"     column="class_id"    />
+        <result property="className"   column="class_name"  />
+        <result property="termId"      column="term_id"     />
+        <result property="termName"    column="term_name"   />
+        <result property="joinTime"    column="join_time"   />
+        <result property="leaveTime"   column="leave_time"  />
+        <result property="isCurrent"   column="is_current"  />
+    </resultMap>
+
+    <resultMap type="EduTransferLog" id="EduTransferLogResult">
+        <id     property="id"           column="id"            />
+        <result property="userId"       column="user_id"       />
+        <result property="studentNo"    column="student_no"    />
+        <result property="studentName"  column="student_name"  />
+        <result property="transferType" column="transfer_type" />
+        <result property="fromId"       column="from_id"       />
+        <result property="fromName"     column="from_name"     />
+        <result property="toId"         column="to_id"         />
+        <result property="toName"       column="to_name"       />
+        <result property="termId"       column="term_id"       />
+        <result property="operatorId"   column="operator_id"   />
+        <result property="operatorName" column="operator_name" />
+        <result property="operateTime"  column="operate_time"  />
+        <result property="remark"       column="remark"        />
+    </resultMap>
+
+    <select id="selectMemberships" resultMap="EduMembershipResult">
+        select cs.id, cs.class_id, c.class_name, cs.term_id, t.term_name,
+               cs.join_time, cs.leave_time, cs.is_current
+        from edu_class_student cs
+        left join edu_class c on c.class_id = cs.class_id
+        left join edu_term t  on t.term_id = cs.term_id
+        where cs.user_id = #{userId}
+        <if test="currentOnly">and cs.is_current = '1'</if>
+        order by cs.is_current desc, cs.join_time desc
+    </select>
+
+    <insert id="insertTransferLog" parameterType="EduTransferLog" useGeneratedKeys="true" keyProperty="id">
+        insert into edu_transfer_log (user_id, transfer_type, from_id, to_id, from_name, to_name,
+                                      term_id, operator_id, operate_time, remark)
+        values (#{userId}, #{transferType}, #{fromId}, #{toId}, #{fromName}, #{toName},
+                #{termId}, #{operatorId}, sysdate(), #{remark})
+    </insert>
+
+    <select id="selectTransferLogs" parameterType="EduTransferLog" resultMap="EduTransferLogResult">
+        select l.id, l.user_id, p.student_no, u.nick_name as student_name,
+               l.transfer_type, l.from_id, l.from_name, l.to_id, l.to_name,
+               l.term_id, l.operator_id, op.nick_name as operator_name,
+               l.operate_time, l.remark
+        from edu_transfer_log l
+        left join sys_user u on u.user_id = l.user_id
+        left join edu_user_profile p on p.user_id = l.user_id
+        left join sys_user op on op.user_id = l.operator_id
+        <where>
+            <if test="userId != null">and l.user_id = #{userId}</if>
+            <if test="transferType != null and transferType != ''">and l.transfer_type = #{transferType}</if>
+            <if test="termId != null">and l.term_id = #{termId}</if>
+        </where>
+        order by l.operate_time desc
+    </select>
+
+    <select id="countGroupTasksInClass" resultType="int">
+        select count(1)
+        from edu_group_member gm
+        join edu_group g on g.group_id = gm.group_id
+        where g.class_id = #{classId} and g.task_id is not null and gm.user_id = #{userId}
+    </select>
+
+    <update id="moveGroupMember">
+        update edu_group_member set group_id = #{toGroupId}
+        where group_id = #{fromGroupId} and user_id = #{userId}
+    </update>
+
+    <delete id="deleteGroupMember">
+        delete from edu_group_member where group_id = #{groupId} and user_id = #{userId}
+    </delete>
+
+    <insert id="insertGroupMember">
+        insert into edu_group_member (group_id, user_id, confirm_status, join_time)
+        values (#{groupId}, #{userId}, 1, sysdate())
+    </insert>
+
+</mapper>

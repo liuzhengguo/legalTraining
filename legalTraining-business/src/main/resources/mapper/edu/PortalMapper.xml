@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.PortalMapper">
+
+    <select id="countPendingReview" resultType="int">
+        select count(1)
+        from edu_submission s
+        join edu_task t on t.task_id = s.task_id
+        join edu_course c on c.course_id = t.course_id
+        where c.teacher_id = #{teacherId}
+          and s.status = 2
+          and t.del_flag = '0'
+    </select>
+
+    <select id="countPendingAudit" resultType="int">
+        select count(1)
+        from edu_recommendation r
+        where r.status = 1
+          and (r.teacher_id is null or r.teacher_id != #{auditorId})
+    </select>
+
+    <select id="countPendingSubmit" resultType="int">
+        select count(1)
+        from edu_task_participant p
+        join edu_task t on t.task_id = p.task_id
+        where p.user_id = #{userId}
+          and t.status = 1
+          and t.del_flag = '0'
+          and p.submit_status in (0, 4)
+    </select>
+
+    <select id="countPendingAuthorize" resultType="int">
+        select count(1)
+        from edu_recommendation r
+        join edu_submission s on s.submission_id = r.submission_id
+        where r.status = 0 and s.user_id = #{userId}
+    </select>
+
+</mapper>

@@ -1,0 +1,46 @@
+/* 工程 B 移动端基线样式：单列卡片、安全区、禁选中长按
+ *
+ * 主色沿用 A 端 Element 主题色 #409EFF、危险色沿用 variables.scss 的 $red #C03639，
+ * 与 A/C 三端同源（见 docs/06 第 5 章 视觉基线），不另立一套。
+ */
+:root {
+  --lt-bg: #f5f6f7;
+  --lt-card: #ffffff;
+  --lt-text: #1f2329;
+  --lt-sub: #6b7280;
+  --lt-primary: #409EFF;
+  --lt-warning: #fa8c16;
+  --lt-danger: #C03639;
+  --lt-safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* 同步给 Vant 组件库，避免基础变量与组件内部色值不一致 */
+  --van-primary-color: #409EFF;
+  --van-danger-color: #C03639;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--lt-bg);
+  color: var(--lt-text);
+  font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 学生端不提供长按选中与右键菜单，避免误操作 */
+#app { -webkit-user-select: none; user-select: none; }
+
+.card {
+  background: var(--lt-card);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px;
+}
+
+.page {
+  padding-bottom: calc(56px + var(--lt-safe-bottom));
+}

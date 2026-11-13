@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduGroupMapper">
+
+    <resultMap type="EduGroup" id="EduGroupResult">
+        <id     property="groupId"    column="group_id"    />
+        <result property="classId"    column="class_id"    />
+        <result property="className"  column="class_name"  />
+        <result property="taskId"     column="task_id"     />
+        <result property="groupName"  column="group_name"  />
+        <result property="leaderId"   column="leader_id"   />
+        <result property="leaderName" column="leader_name" />
+        <result property="memberMin"  column="member_min"  />
+        <result property="memberMax"  column="member_max"  />
+        <result property="groupType"  column="group_type"  />
+        <result property="status"     column="status"      />
+        <result property="createBy"   column="create_by"   />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <resultMap type="EduGroupMember" id="EduGroupMemberResult">
+        <id     property="id"            column="id"             />
+        <result property="groupId"       column="group_id"       />
+        <result property="userId"        column="user_id"        />
+        <result property="studentName"   column="student_name"   />
+        <result property="studentNo"     column="student_no"     />
+        <result property="confirmStatus" column="confirm_status" />
+        <result property="contribution"  column="contribution"   />
+        <result property="joinTime"      column="join_time"      />
+    </resultMap>
+
+    <sql id="selectEduGroupVo">
+        select g.group_id, g.class_id, c.class_name, g.task_id, g.group_name,
+               g.leader_id, u.nick_name as leader_name,
+               g.member_min, g.member_max, g.group_type, g.status,
+               g.create_by, g.create_time, g.update_time
+        from edu_group g
+        left join edu_class c on c.class_id = g.class_id
+        left join sys_user u  on u.user_id = g.leader_id
+    </sql>
+
+    <select id="selectEduGroupById" parameterType="Long" resultMap="EduGroupResult">
+        <include refid="selectEduGroupVo"/>
+        where g.group_id = #{groupId}
+    </select>
+
+    <select id="selectEduGroupList" parameterType="EduGroup" resultMap="EduGroupResult">
+        <include refid="selectEduGroupVo"/>
+        <where>
+            <if test="classId != null">and g.class_id = #{classId}</if>
+            <if test="taskId != null">and g.task_id = #{taskId}</if>
+            <if test="groupName != null and groupName != ''">
+                and g.group_name like concat('%', #{groupName}, '%')
+            </if>
+            <if test="status != null">and g.status = #{status}</if>
+            <if test="groupType != null">and g.group_type = #{groupType}</if>
+        </where>
+        order by g.class_id, g.group_id
+    </select>
+
+    <insert id="insertEduGroup" parameterType="EduGroup" useGeneratedKeys="true" keyProperty="groupId">
+        insert into edu_group (class_id, task_id, group_name, leader_id, member_min, member_max,
+                               group_type, status, create_by, create_time)
+        values (#{classId}, #{taskId}, #{groupName}, #{leaderId}, #{memberMin}, #{memberMax},
+                #{groupType}, #{status}, #{createBy}, sysdate())
+    </insert>
+
+    <update id="updateEduGroup" parameterType="EduGroup">
+        update edu_group
+        <set>
+            <if test="classId != null">class_id = #{classId},</if>
+            <if test="taskId != null">task_id = #{taskId},</if>
+            <if test="groupName != null and groupName != ''">group_name = #{groupName},</if>
+            <if test="leaderId != null">leader_id = #{leaderId},</if>
+            <if test="memberMin != null">member_min = #{memberMin},</if>
+            <if test="memberMax != null">member_max = #{memberMax},</if>
+            <if test="groupType != null">group_type = #{groupType},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = sysdate()
+        </set>
+        where group_id = #{groupId}
+    </update>
+
+    <delete id="deleteEduGroupByIds" parameterType="Long">
+        delete from edu_group where group_id in
+        <foreach collection="array" item="groupId" open="(" separator="," close=")">
+            #{groupId}
+        </foreach>
+    </delete>
+
+    <select id="selectMembers" parameterType="Long" resultMap="EduGroupMemberResult">
+        select m.id, m.group_id, m.user_id, u.nick_name as student_name, p.student_no,
+               m.confirm_status, m.contribution, m.join_time
+        from edu_group_member m
+        left join sys_user u on u.user_id = m.user_id
+        left join edu_user_profile p on p.user_id = m.user_id
+        where m.group_id = #{groupId}
+        order by m.id
+    </select>
+
+    <delete id="deleteMembersByGroupId" parameterType="Long">
+        delete from edu_group_member where group_id = #{groupId}
+    </delete>
+
+    <insert id="batchInsertMembers">
+        insert into edu_group_member (group_id, user_id, confirm_status, contribution, join_time) values
+        <foreach collection="list" item="it" separator=",">
+            (#{it.groupId}, #{it.userId}, #{it.confirmStatus}, #{it.contribution}, sysdate())
+        </foreach>
+    </insert>
+
+    <select id="countClassStudent" resultType="int">
+        select count(1) from edu_class_student
+        where class_id = #{classId} and user_id = #{userId} and is_current = '1'
+    </select>
+
+    <select id="countByGroupName" resultType="int">
+        select count(1) from edu_group
+        where class_id = #{classId} and group_name = #{groupName}
+        <choose>
+            <when test="taskId != null">and task_id = #{taskId}</when>
+            <otherwise>and task_id is null</otherwise>
+        </choose>
+        <if test="excludeId != null">and group_id != #{excludeId}</if>
+    </select>
+
+</mapper>

@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduReviewMapper">
+
+    <resultMap type="EduReview" id="EduReviewResult">
+        <id     property="reviewId"          column="review_id"          />
+        <result property="submissionId"      column="submission_id"      />
+        <result property="submissionVersion" column="submission_version" />
+        <result property="teacherId"         column="teacher_id"         />
+        <result property="teacherName"       column="teacher_name"       />
+        <result property="totalScore"        column="total_score"        />
+        <result property="reviewComment"     column="review_comment"     />
+        <result property="status"            column="status"             />
+        <result property="reviewTime"        column="review_time"        />
+        <result property="publishTime"       column="publish_time"       />
+        <result property="returnReason"      column="return_reason"      />
+        <result property="returnDeadline"    column="return_deadline"    />
+        <result property="isReturn"          column="is_return"          />
+        <result property="taskId"            column="task_id"            />
+        <result property="taskTitle"         column="task_title"         />
+        <result property="studentName"       column="student_name"       />
+        <result property="studentNo"         column="student_no"         />
+        <result property="totalScoreFull"    column="total_score_full"   />
+        <result property="scoreMode"         column="score_mode"         />
+    </resultMap>
+
+    <resultMap type="EduReviewScore" id="EduReviewScoreResult">
+        <id     property="id"        column="id"         />
+        <result property="reviewId"  column="review_id"  />
+        <result property="itemId"    column="item_id"    />
+        <result property="score"     column="score"      />
+        <result property="itemName"  column="item_name"  />
+        <result property="weight"    column="weight"     />
+        <result property="maxScore"  column="max_score"  />
+    </resultMap>
+
+    <sql id="selectEduReviewVo">
+        select r.review_id, r.submission_id, r.submission_version, r.teacher_id,
+               t.nick_name as teacher_name, r.total_score, r.review_comment, r.status,
+               r.review_time, r.publish_time, r.return_reason, r.return_deadline, r.is_return,
+               s.task_id, tk.title as task_title, u.nick_name as student_name, p.student_no,
+               tk.total_score as total_score_full, tk.score_mode
+        from edu_review r
+        left join edu_submission s on s.submission_id = r.submission_id
+        left join edu_task tk on tk.task_id = s.task_id
+        left join sys_user t on t.user_id = r.teacher_id
+        left join sys_user u on u.user_id = s.user_id
+        left join edu_user_profile p on p.user_id = s.user_id
+    </sql>
+
+    <select id="selectEduReviewById" parameterType="Long" resultMap="EduReviewResult">
+        <include refid="selectEduReviewVo"/>
+        where r.review_id = #{reviewId}
+    </select>
+
+    <select id="selectBySubmissionAndVersion" resultMap="EduReviewResult">
+        <include refid="selectEduReviewVo"/>
+        where r.submission_id = #{submissionId} and r.submission_version = #{version}
+        order by r.review_id desc limit 1
+    </select>
+
+    <select id="selectPendingList" parameterType="EduReview" resultMap="EduReviewResult">
+        select s.submission_id, s.task_id, tk.title as task_title, u.nick_name as student_name,
+               p.student_no, tk.total_score as total_score_full, tk.score_mode,
+               s.version as submission_version, s.submit_time as review_time
+        from edu_submission s
+        join edu_task tk on tk.task_id = s.task_id
+        left join sys_user u on u.user_id = s.user_id
+        left join edu_user_profile p on p.user_id = s.user_id
+        where s.status = 2
+        <if test="taskId != null">and s.task_id = #{taskId}</if>
+        <if test="studentNo != null and studentNo != ''">
+            and p.student_no like concat('%', #{studentNo}, '%')
+        </if>
+        <if test="studentName != null and studentName != ''">
+            and u.nick_name like concat('%', #{studentName}, '%')
+        </if>
+        <if test="courseId != null">and tk.course_id = #{courseId}</if>
+        order by s.submit_time
+    </select>
+
+    <select id="selectReviewList" parameterType="EduReview" resultMap="EduReviewResult">
+        <include refid="selectEduReviewVo"/>
+        <where>
+            <if test="taskId != null">and s.task_id = #{taskId}</if>
+            <if test="submissionId != null">and r.submission_id = #{submissionId}</if>
+            <if test="status != null">and r.status = #{status}</if>
+            <if test="teacherId != null">and r.teacher_id = #{teacherId}</if>
+        </where>
+        order by r.review_id desc
+    </select>
+
+    <insert id="insertEduReview" parameterType="EduReview" useGeneratedKeys="true" keyProperty="reviewId">
+        insert into edu_review (submission_id, submission_version, teacher_id, total_score,
+                                review_comment, status, review_time, publish_time, return_reason,
+                                return_deadline, is_return, create_time)
+        values (#{submissionId}, #{submissionVersion}, #{teacherId}, #{totalScore},
+                #{reviewComment}, #{status}, #{reviewTime}, #{publishTime}, #{returnReason},
+                #{returnDeadline}, #{isReturn}, sysdate())
+    </insert>
+
+    <update id="updateEduReview" parameterType="EduReview">
+        update edu_review
+        <set>
+            <if test="totalScore != null">total_score = #{totalScore},</if>
+            <if test="reviewComment != null">review_comment = #{reviewComment},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="reviewTime != null">review_time = #{reviewTime},</if>
+            <if test="publishTime != null">publish_time = #{publishTime},</if>
+            <if test="returnReason != null">return_reason = #{returnReason},</if>
+            <if test="returnDeadline != null">return_deadline = #{returnDeadline},</if>
+            <if test="isReturn != null and isReturn != ''">is_return = #{isReturn},</if>
+            update_time = sysdate()
+        </set>
+        where review_id = #{reviewId}
+    </update>
+
+    <delete id="deleteEduReview" parameterType="Long">
+        delete from edu_review where review_id = #{reviewId}
+    </delete>
+
+    <select id="selectScores" parameterType="Long" resultMap="EduReviewScoreResult">
+        select rs.id, rs.review_id, rs.item_id, rs.score,
+               si.item_name, si.weight, si.max_score
+        from edu_review_score rs
+        left join edu_task_score_item si on si.item_id = rs.item_id
+        where rs.review_id = #{reviewId}
+        order by si.sort_no, rs.id
+    </select>
+
+    <delete id="deleteScores" parameterType="Long">
+        delete from edu_review_score where review_id = #{reviewId}
+    </delete>
+
+    <insert id="batchInsertScores">
+        insert into edu_review_score (review_id, item_id, score) values
+        <foreach collection="list" item="it" separator=",">
+            (#{reviewId}, #{it.itemId}, #{it.score})
+        </foreach>
+    </insert>
+
+    <select id="countPendingByTeacher" parameterType="Long" resultType="int">
+        select count(1)
+        from edu_submission s
+        join edu_task tk on tk.task_id = s.task_id
+        join edu_course c on c.course_id = tk.course_id
+        where s.status = 2
+        <if test="teacherId != null">and c.teacher_id = #{teacherId}</if>
+    </select>
+
+    <select id="selectTaskReviewProgress" parameterType="Long" resultType="java.util.LinkedHashMap">
+        select tk.task_id as taskId, tk.title as taskTitle, c.course_name as courseName,
+               (select count(1) from edu_task_participant p where p.task_id = tk.task_id) as participantCount,
+               (select count(1) from edu_submission s where s.task_id = tk.task_id and s.status = 2) as pendingCount,
+               (select count(1) from edu_submission s where s.task_id = tk.task_id and s.status = 3) as reviewedCount,
+               (select count(1) from edu_submission s where s.task_id = tk.task_id and s.status = 5) as overdueCount
+        from edu_task tk
+        left join edu_course c on c.course_id = tk.course_id
+        <where>
+            tk.del_flag = '0' and tk.status in (1, 2, 4)
+            <if test="courseId != null">and tk.course_id = #{courseId}</if>
+        </where>
+        order by tk.deadline desc
+    </select>
+
+</mapper>

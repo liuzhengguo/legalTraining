@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduResourceMapper">
+
+    <resultMap type="EduResource" id="EduResourceResult">
+        <id     property="resourceId"    column="resource_id"    />
+        <result property="title"         column="title"          />
+        <result property="categoryId"    column="category_id"    />
+        <result property="categoryName"  column="category_name"  />
+        <result property="resType"       column="res_type"       />
+        <result property="fileId"        column="file_id"        />
+        <result property="fileName"      column="file_name"      />
+        <result property="fileSize"      column="file_size"      />
+        <result property="fileExt"       column="file_ext"       />
+        <result property="externalUrl"   column="external_url"   />
+        <result property="duration"      column="duration"       />
+        <result property="cover"         column="cover"          />
+        <result property="visibleScope"  column="visible_scope"  />
+        <result property="allowDownload" column="allow_download" />
+        <result property="refCount"      column="ref_count"      />
+        <result property="status"        column="status"         />
+        <result property="ownerId"       column="owner_id"       />
+        <result property="ownerName"     column="owner_name"     />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateTime"    column="update_time"    />
+    </resultMap>
+
+    <resultMap type="EduResourceCategory" id="EduResourceCategoryResult">
+        <id     property="categoryId"    column="category_id"    />
+        <result property="parentId"      column="parent_id"      />
+        <result property="categoryName"  column="category_name"  />
+        <result property="orderNum"      column="order_num"      />
+        <result property="ownerId"       column="owner_id"       />
+        <result property="status"        column="status"         />
+        <result property="resourceCount" column="resource_count" />
+    </resultMap>
+
+    <sql id="selectEduResourceVo">
+        select r.resource_id, r.title, r.category_id, c.category_name, r.res_type, r.file_id,
+               r.file_name, r.file_size, r.file_ext, r.external_url, r.duration, r.cover,
+               r.visible_scope, r.allow_download, r.ref_count, r.status, r.owner_id,
+               u.nick_name as owner_name, r.create_time, r.update_time
+        from edu_resource r
+        left join edu_resource_category c on c.category_id = r.category_id
+        left join sys_user u on u.user_id = r.owner_id
+    </sql>
+
+    <select id="selectEduResourceById" parameterType="Long" resultMap="EduResourceResult">
+        <include refid="selectEduResourceVo"/>
+        where r.resource_id = #{resourceId} and r.del_flag = '0'
+    </select>
+
+    <select id="selectEduResourceList" parameterType="EduResource" resultMap="EduResourceResult">
+        <include refid="selectEduResourceVo"/>
+        <where>
+            r.del_flag = '0'
+            <if test="title != null and title != ''">
+                and r.title like concat('%', #{title}, '%')
+            </if>
+            <if test="categoryId != null">and r.category_id = #{categoryId}</if>
+            <if test="resType != null and resType != ''">and r.res_type = #{resType}</if>
+            <if test="status != null">and r.status = #{status}</if>
+            <if test="ownerId != null">and r.owner_id = #{ownerId}</if>
+            <if test="visibleScope != null">and r.visible_scope = #{visibleScope}</if>
+            <if test="allowDownload != null and allowDownload != ''">
+                and r.allow_download = #{allowDownload}
+            </if>
+            <if test="courseIds != null and courseIds.size() > 0">
+                and exists (select 1 from edu_course_resource cr
+                            where cr.resource_id = r.resource_id
+                              and cr.course_id in
+                              <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+                                  #{cid}
+                              </foreach>)
+            </if>
+            <if test="params.courseId != null">
+                and exists (select 1 from edu_course_resource cr
+                            where cr.resource_id = r.resource_id
+                              and cr.course_id = #{params.courseId})
+            </if>
+        </where>
+        order by r.resource_id desc
+    </select>
+
+    <insert id="insertEduResource" parameterType="EduResource" useGeneratedKeys="true" keyProperty="resourceId">
+        insert into edu_resource (title, category_id, res_type, file_id, file_name, file_size, file_ext,
+                                  external_url, duration, cover, visible_scope, allow_download,
+                                  ref_count, status, owner_id, del_flag, create_time)
+        values (#{title}, #{categoryId}, #{resType}, #{fileId}, #{fileName}, #{fileSize}, #{fileExt},
+                #{externalUrl}, #{duration}, #{cover}, #{visibleScope}, #{allowDownload},
+                0, #{status}, #{ownerId}, '0', sysdate())
+    </insert>
+
+    <update id="updateEduResource" parameterType="EduResource">
+        update edu_resource
+        <set>
+            <if test="title != null and title != ''">title = #{title},</if>
+            <if test="categoryId != null">category_id = #{categoryId},</if>
+            <if test="resType != null and resType != ''">res_type = #{resType},</if>
+            <if test="fileId != null">file_id = #{fileId},</if>
+            <if test="fileName != null">file_name = #{fileName},</if>
+            <if test="fileSize != null">file_size = #{fileSize},</if>
+            <if test="fileExt != null">file_ext = #{fileExt},</if>
+            <if test="externalUrl != null">external_url = #{externalUrl},</if>
+            <if test="duration != null">duration = #{duration},</if>
+            <if test="cover != null">cover = #{cover},</if>
+            <if test="visibleScope != null">visible_scope = #{visibleScope},</if>
+            <if test="allowDownload != null and allowDownload != ''">allow_download = #{allowDownload},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = sysdate()
+        </set>
+        where resource_id = #{resourceId}
+    </update>
+
+    <update id="deleteEduResourceById" parameterType="Long">
+        update edu_resource set del_flag = '2', update_time = sysdate() where resource_id = #{resourceId}
+    </update>
+
+    <update id="changeRefCount">
+        update edu_resource
+        set ref_count = greatest(0, ref_count + #{delta}), update_time = sysdate()
+        where resource_id = #{resourceId}
+    </update>
+
+    <update id="recountRef" parameterType="Long">
+        update edu_resource r
+        set r.ref_count = (select count(1) from edu_task_resource tr where tr.resource_id = r.resource_id),
+            r.update_time = sysdate()
+        where r.resource_id = #{resourceId}
+    </update>
+
+    <select id="selectCourseIdsByResource" parameterType="Long" resultType="java.lang.Long">
+        select course_id from edu_course_resource where resource_id = #{resourceId} order by id
+    </select>
+
+    <delete id="deleteCourseResourceByResource" parameterType="Long">
+        delete from edu_course_resource where resource_id = #{resourceId}
+    </delete>
+
+    <insert id="insertCourseResource">
+        insert into edu_course_resource (course_id, resource_id, sort_no)
+        values (#{courseId}, #{resourceId}, #{sortNo})
+    </insert>
+
+    <delete id="deleteCourseResource">
+        delete from edu_course_resource where course_id = #{courseId} and resource_id = #{resourceId}
+    </delete>
+
+    <select id="selectResourcesByCourse" parameterType="Long" resultMap="EduResourceResult">
+        select r.resource_id, r.title, r.category_id, c.category_name, r.res_type, r.file_id,
+               r.file_name, r.file_size, r.file_ext, r.external_url, r.duration, r.cover,
+               r.visible_scope, r.allow_download, r.ref_count, r.status, r.owner_id,
+               u.nick_name as owner_name, r.create_time
+        from edu_course_resource cr
+        join edu_resource r on r.resource_id = cr.resource_id and r.del_flag = '0'
+        left join edu_resource_category c on c.category_id = r.category_id
+        left join sys_user u on u.user_id = r.owner_id
+        where cr.course_id = #{courseId}
+        order by cr.sort_no, cr.id
+    </select>
+
+    <!-- ================= 分类 ================= -->
+
+    <select id="selectCategoryList" parameterType="EduResourceCategory" resultMap="EduResourceCategoryResult">
+        select c.category_id, c.parent_id, c.category_name, c.order_num, c.owner_id, c.status,
+               (select count(1) from edu_resource r
+                 where r.category_id = c.category_id and r.del_flag = '0') as resource_count
+        from edu_resource_category c
+        <where>
+            <if test="parentId != null">and c.parent_id = #{parentId}</if>
+            <if test="status != null and status != ''">and c.status = #{status}</if>
+            <if test="categoryName != null and categoryName != ''">
+                and c.category_name like concat('%', #{categoryName}, '%')
+            </if>
+        </where>
+        order by c.parent_id, c.order_num, c.category_id
+    </select>
+
+    <select id="selectCategoryById" parameterType="Long" resultMap="EduResourceCategoryResult">
+        select category_id, parent_id, category_name, order_num, owner_id, status
+        from edu_resource_category where category_id = #{categoryId}
+    </select>
+
+    <insert id="insertCategory" parameterType="EduResourceCategory" useGeneratedKeys="true" keyProperty="categoryId">
+        insert into edu_resource_category (parent_id, category_name, order_num, owner_id, status)
+        values (#{parentId}, #{categoryName}, #{orderNum}, #{ownerId}, #{status})
+    </insert>
+
+    <update id="updateCategory" parameterType="EduResourceCategory">
+        update edu_resource_category
+        <set>
+            <if test="parentId != null">parent_id = #{parentId},</if>
+            <if test="categoryName != null and categoryName != ''">category_name = #{categoryName},</if>
+            <if test="orderNum != null">order_num = #{orderNum},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+        </set>
+        where category_id = #{categoryId}
+    </update>
+
+    <delete id="deleteCategoryById" parameterType="Long">
+        delete from edu_resource_category where category_id = #{categoryId}
+    </delete>
+
+    <select id="countChildCategory" parameterType="Long" resultType="int">
+        select count(1) from edu_resource_category where parent_id = #{categoryId}
+    </select>
+
+    <select id="countResourceByCategory" parameterType="Long" resultType="int">
+        select count(1) from edu_resource where category_id = #{categoryId} and del_flag = '0'
+    </select>
+
+    <select id="countCategoryByName" resultType="int">
+        select count(1) from edu_resource_category
+        where parent_id = #{parentId} and category_name = #{categoryName}
+        <choose>
+            <when test="ownerId != null">and owner_id = #{ownerId}</when>
+            <otherwise>and owner_id is null</otherwise>
+        </choose>
+        <if test="excludeId != null">and category_id != #{excludeId}</if>
+    </select>
+
+</mapper>

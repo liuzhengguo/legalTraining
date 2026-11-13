@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduTermMapper">
+
+    <resultMap type="EduTerm" id="EduTermResult">
+        <id     property="termId"        column="term_id"        />
+        <result property="schoolYear"    column="school_year"    />
+        <result property="termNo"        column="term_no"        />
+        <result property="termName"      column="term_name"      />
+        <result property="startDate"     column="start_date"     />
+        <result property="endDate"       column="end_date"       />
+        <result property="isCurrent"     column="is_current"     />
+        <result property="status"        column="status"         />
+        <result property="archiveTime"   column="archive_time"   />
+        <result property="archiveBy"     column="archive_by"     />
+        <result property="archiveReport" column="archive_report" />
+        <result property="delFlag"       column="del_flag"       />
+        <result property="createBy"      column="create_by"      />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"      column="update_by"      />
+        <result property="updateTime"    column="update_time"    />
+        <result property="remark"        column="remark"         />
+    </resultMap>
+
+    <sql id="selectEduTermVo">
+        select term_id, school_year, term_no, term_name, start_date, end_date, is_current,
+               status, archive_time, archive_by, archive_report, del_flag,
+               create_by, create_time, update_by, update_time, remark
+        from edu_term
+    </sql>
+
+    <select id="selectEduTermById" parameterType="Long" resultMap="EduTermResult">
+        <include refid="selectEduTermVo"/>
+        where term_id = #{termId} and del_flag = '0'
+    </select>
+
+    <select id="selectEduTermList" parameterType="EduTerm" resultMap="EduTermResult">
+        <include refid="selectEduTermVo"/>
+        <where>
+            del_flag = '0'
+            <if test="schoolYear != null and schoolYear != ''">
+                and school_year like concat('%', #{schoolYear}, '%')
+            </if>
+            <if test="termName != null and termName != ''">
+                and term_name like concat('%', #{termName}, '%')
+            </if>
+            <if test="termNo != null">
+                and term_no = #{termNo}
+            </if>
+            <if test="isCurrent != null and isCurrent != ''">
+                and is_current = #{isCurrent}
+            </if>
+            <if test="status != null">
+                and status = #{status}
+            </if>
+        </where>
+        order by school_year desc, term_no desc
+    </select>
+
+    <select id="selectCurrentTerm" resultMap="EduTermResult">
+        <include refid="selectEduTermVo"/>
+        where is_current = '1' and del_flag = '0'
+        limit 1
+    </select>
+
+    <insert id="insertEduTerm" parameterType="EduTerm" useGeneratedKeys="true" keyProperty="termId">
+        insert into edu_term (
+            school_year, term_no, term_name, start_date, end_date, is_current, status,
+            archive_time, archive_by, archive_report, del_flag,
+            create_by, create_time, remark
+        ) values (
+            #{schoolYear}, #{termNo}, #{termName}, #{startDate}, #{endDate},
+            #{isCurrent}, #{status},
+            #{archiveTime}, #{archiveBy}, #{archiveReport}, '0',
+            #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateEduTerm" parameterType="EduTerm">
+        update edu_term
+        <set>
+            <if test="schoolYear != null and schoolYear != ''">school_year = #{schoolYear},</if>
+            <if test="termNo != null">term_no = #{termNo},</if>
+            <if test="termName != null and termName != ''">term_name = #{termName},</if>
+            <if test="startDate != null">start_date = #{startDate},</if>
+            <if test="endDate != null">end_date = #{endDate},</if>
+            <if test="isCurrent != null and isCurrent != ''">is_current = #{isCurrent},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="archiveTime != null">archive_time = #{archiveTime},</if>
+            <if test="archiveBy != null">archive_by = #{archiveBy},</if>
+            <if test="archiveReport != null">archive_report = #{archiveReport},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = sysdate()
+        </set>
+        where term_id = #{termId}
+    </update>
+
+    <update id="deleteEduTermByIds" parameterType="Long">
+        update edu_term set del_flag = '2' where term_id in
+        <foreach collection="array" item="termId" open="(" separator="," close=")">
+            #{termId}
+        </foreach>
+    </update>
+
+    <select id="countBySchoolYearAndTermNo" resultType="int">
+        select count(1) from edu_term
+        where school_year = #{schoolYear} and term_no = #{termNo} and del_flag = '0'
+        <if test="excludeId != null">
+            and term_id != #{excludeId}
+        </if>
+    </select>
+
+    <update id="clearCurrentTerm">
+        update edu_term set is_current = '0', update_time = sysdate()
+        where is_current = '1'
+        <if test="excludeId != null">
+            and term_id != #{excludeId}
+        </if>
+    </update>
+
+    <!-- 归档前置检查：四项统计，均在 edu_ 同库内，不跨库 -->
+    <select id="countInProgressTasks" resultType="int">
+        select count(1)
+        from edu_task t
+        join edu_course c on c.course_id = t.course_id
+        where c.term_id = #{termId} and t.status = 1 and t.del_flag = '0'
+    </select>
+
+    <select id="countUnreviewedSubmissions" resultType="int">
+        select count(1)
+        from edu_submission s
+        join edu_task t on t.task_id = s.task_id
+        join edu_course c on c.course_id = t.course_id
+        where c.term_id = #{termId} and s.status = 2
+    </select>
+
+    <select id="countUnpublishedScores" resultType="int">
+        select count(1)
+        from edu_score s
+        join edu_task t on t.task_id = s.task_id
+        join edu_course c on c.course_id = t.course_id
+        where c.term_id = #{termId} and s.status = 0
+    </select>
+
+    <select id="countPendingRecommendations" resultType="int">
+        select count(1)
+        from edu_recommendation r
+        join edu_submission s on s.submission_id = r.submission_id
+        join edu_task t on t.task_id = s.task_id
+        join edu_course c on c.course_id = t.course_id
+        where c.term_id = #{termId} and r.status in (0, 1)
+    </select>
+    <update id="archiveTasks">
+        update edu_task t
+        join edu_course c on c.course_id = t.course_id
+        set t.status = 4
+        where c.term_id = #{termId} and t.status in (1, 2) and t.del_flag = '0'
+    </update>
+
+    <update id="markUnreviewedTasks">
+        update edu_task t
+        join edu_course c on c.course_id = t.course_id
+        set t.archive_flag = '1'
+        where c.term_id = #{termId}
+          and t.del_flag = '0'
+          and exists (
+              select 1 from edu_submission s
+              where s.task_id = t.task_id and s.status = 2
+          )
+    </update>
+
+</mapper>

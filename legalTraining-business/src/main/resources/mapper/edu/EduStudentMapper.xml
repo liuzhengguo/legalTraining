@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduStudentMapper">
+
+    <resultMap type="EduStudent" id="EduStudentResult">
+        <id     property="userId"       column="user_id"       />
+        <result property="userName"     column="user_name"     />
+        <result property="nickName"     column="nick_name"     />
+        <result property="studentNo"    column="student_no"    />
+        <result property="userCategory" column="user_category" />
+        <result property="termId"       column="term_id"       />
+        <result property="classId"      column="class_id"      />
+        <result property="className"    column="class_name"    />
+        <result property="majorId"      column="major_id"      />
+        <result property="majorName"    column="major_name"    />
+        <result property="gradeYear"    column="grade_year"    />
+        <result property="phonenumber"  column="phonenumber"   />
+        <result property="status"       column="status"        />
+        <result property="source"       column="source"        />
+        <result property="createTime"   column="create_time"   />
+    </resultMap>
+
+    <sql id="selectStudentVo">
+        select u.user_id, u.user_name, u.nick_name, p.student_no, p.user_category,
+               cs.term_id, cs.class_id, c.class_name,
+               p.major_id, m.major_name, p.grade_year,
+               u.phonenumber, u.status, p.source, u.create_time
+        from sys_user u
+        join edu_user_profile p on p.user_id = u.user_id
+        left join edu_class_student cs on cs.user_id = u.user_id
+             and cs.is_current = '1'
+        left join edu_class c on c.class_id = cs.class_id
+        left join edu_major m on m.major_id = p.major_id
+    </sql>
+
+    <select id="selectStudentList" parameterType="EduStudent" resultMap="EduStudentResult">
+        <include refid="selectStudentVo"/>
+        <where>
+            u.del_flag = '0'
+            <if test="userCategory != null and userCategory != ''">
+                and p.user_category = #{userCategory}
+            </if>
+            <if test="userName != null and userName != ''">
+                and u.user_name like concat('%', #{userName}, '%')
+            </if>
+            <if test="nickName != null and nickName != ''">
+                and u.nick_name like concat('%', #{nickName}, '%')
+            </if>
+            <if test="studentNo != null and studentNo != ''">
+                and p.student_no like concat('%', #{studentNo}, '%')
+            </if>
+            <if test="classId != null">and cs.class_id = #{classId}</if>
+            <if test="termId != null">and cs.term_id = #{termId}</if>
+            <if test="majorId != null">and p.major_id = #{majorId}</if>
+            <if test="gradeYear != null">and p.grade_year = #{gradeYear}</if>
+            <if test="status != null and status != ''">and u.status = #{status}</if>
+            <if test="phonenumber != null and phonenumber != ''">
+                and u.phonenumber like concat('%', #{phonenumber}, '%')
+            </if>
+        </where>
+        order by c.class_code, p.student_no
+    </select>
+
+    <select id="selectStudentByUserId" parameterType="Long" resultMap="EduStudentResult">
+        <include refid="selectStudentVo"/>
+        where u.user_id = #{userId}
+    </select>
+
+    <select id="countProfile" resultType="int">
+        select count(1) from edu_user_profile where user_id = #{userId}
+    </select>
+
+    <insert id="insertProfile">
+        insert into edu_user_profile (user_id, user_category, student_no, major_id, grade_year, source,
+                                      create_time, update_time)
+        values (#{userId}, #{userCategory}, #{studentNo}, #{majorId}, #{gradeYear}, #{source},
+                sysdate(), sysdate())
+    </insert>
+
+    <update id="updateProfile">
+        update edu_user_profile
+        <set>
+            <if test="studentNo != null and studentNo != ''">student_no = #{studentNo},</if>
+            <if test="majorId != null">major_id = #{majorId},</if>
+            <if test="gradeYear != null">grade_year = #{gradeYear},</if>
+            update_time = sysdate()
+        </set>
+        where user_id = #{userId}
+    </update>
+
+    <select id="countStudentNo" resultType="int">
+        select count(1) from edu_user_profile
+        where student_no = #{studentNo}
+        <if test="excludeUserId != null">and user_id != #{excludeUserId}</if>
+    </select>
+
+    <select id="selectUserIdByStudentNo" resultType="java.lang.Long">
+        select user_id from edu_user_profile where student_no = #{studentNo} limit 1
+    </select>
+
+    <update id="closeCurrentMembership">
+        update edu_class_student
+        set is_current = '0', leave_time = sysdate()
+        where user_id = #{userId} and is_current = '1'
+        <if test="termId != null">and term_id = #{termId}</if>
+    </update>
+
+    <insert id="insertMembership">
+        insert into edu_class_student (class_id, user_id, term_id, join_time, is_current, create_by, create_time)
+        values (#{classId}, #{userId}, #{termId}, sysdate(), '1', #{createBy}, sysdate())
+    </insert>
+
+    <select id="countCurrentMembership" resultType="int">
+        select count(1) from edu_class_student where user_id = #{userId} and is_current = '1'
+    </select>
+
+</mapper>

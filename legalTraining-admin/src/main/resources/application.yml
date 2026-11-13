@@ -7,7 +7,7 @@ legal-training:
   # 版权年份
   copyrightYear: 2026
   # 文件路径 示例（ Windows配置D:/legalTraining/uploadPath，Linux配置 /home/legalTraining/uploadPath）
-  profile: D:/legalTraining/uploadPath
+  profile: C:/code/legalTraining/uploadPath
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证

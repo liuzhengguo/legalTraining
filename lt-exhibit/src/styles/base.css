@@ -1,0 +1,122 @@
+/* 工程 C 展示端基线：网页版展厅（无三维引擎），深色底 + 长滚动页面
+ *
+ * 配色不另立一套，全部取自 A 端既有实现（需求文档未定义配色）：
+ *   主色  #409EFF  Element UI 主题色（legalTraining-ui 全站按钮/链接在用）
+ *   副色  #3A71A8  variables.scss 的 $light-blue
+ *   底色  #141824  RuoYi 深色主题的子菜单背景
+ *   面板  #1A1F2E  RuoYi 深色主题的侧栏背景
+ * 换肤只改这四个变量，页面其余颜色全部由它们派生。
+ */
+:root {
+  --ex-bg: #141824;
+  --ex-panel: #1a1f2e;
+  --ex-text: #eef1f6;
+  --ex-sub: #9aa4b2;
+  --ex-accent: #409EFF;
+  --ex-accent-2: #3A71A8;
+  --ex-radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--ex-bg);
+  color: var(--ex-text);
+  font: 16px/1.6 "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 网页版展区是长页，纵向滚动；横向锁定避免触摸误滑（TM-02-01） */
+html, body { overflow-x: hidden; overflow-y: auto; }
+
+/* 展厅端不做文本选中，避免长按拖选出蓝条 */
+#app { user-select: none; -webkit-user-select: none; }
+
+/* ---------- 展区长页骨架（EF-01-02 / EF-01-04） ---------- */
+.zone-page { max-width: 1440px; margin: 0 auto; padding: 0 24px 96px; }
+
+/* 展区头图：网页版用一张静态图 + 渐变遮罩，不做全景 */
+.zone-hero {
+  position: relative;
+  height: 42vh;
+  min-height: 280px;
+  border-radius: var(--ex-radius);
+  overflow: hidden;
+  background: #232c40 center / cover no-repeat;
+}
+.zone-hero__mask {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(20, 24, 36, 0) 35%, rgba(20, 24, 36, 0.92) 100%);
+}
+.zone-hero__title {
+  position: absolute; left: 32px; bottom: 24px;
+  margin: 0; font-size: 32px; letter-spacing: 1px;
+}
+
+/* 热点：叠在头图上的归一化坐标点（exh_zone_spot.pos_x/pos_y） */
+.zone-spot {
+  position: absolute;
+  width: 18px; height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: var(--ex-accent);
+  box-shadow: 0 0 0 6px rgba(64, 158, 255, 0.24);
+  cursor: pointer;
+  border: 0;
+}
+
+/* 三种展区版式：grid 图墙 / flow 长页 / timeline 时间轴（biz_zone_layout） */
+.zone-layout--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  margin-top: 28px;
+}
+.zone-layout--flow { margin-top: 28px; }
+.zone-layout--flow .item-card { margin-bottom: 28px; }
+.zone-layout--timeline { margin-top: 28px; padding-left: 28px; border-left: 1px solid rgba(255, 255, 255, 0.12); }
+.zone-layout--timeline .item-card { position: relative; margin-bottom: 24px; }
+.zone-layout--timeline .item-card::before {
+  content: ''; position: absolute; left: -34px; top: 24px;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--ex-accent);
+}
+
+.item-card {
+  display: block;
+  background: var(--ex-panel);
+  border-radius: var(--ex-radius);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.item-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.item-card__cover { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #232c40; }
+.item-card__body { padding: 14px 16px 18px; }
+.item-card__title { margin: 0 0 6px; font-size: 17px; }
+.item-card__summary { margin: 0; color: var(--ex-sub); font-size: 14px; }
+
+/* 简版模式放开选中，浅色底便于阅读与分享 */
+.mode-lite, .mode-lite #app {
+  user-select: text;
+  -webkit-user-select: text;
+  background: #ffffff;
+  color: #1f2329;
+}
+.mode-lite .zone-hero { height: 32vh; }
+
+/* 弱网/离线角标 */
+.offline-badge {
+  position: fixed;
+  right: 16px;
+  top: 16px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(250, 140, 22, 0.9);
+  color: #1f2329;
+  font-size: 13px;
+  z-index: 90;
+}

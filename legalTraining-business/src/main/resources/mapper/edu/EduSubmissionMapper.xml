@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduSubmissionMapper">
+
+    <resultMap type="EduSubmission" id="EduSubmissionResult">
+        <id     property="submissionId"     column="submission_id"     />
+        <result property="taskId"           column="task_id"           />
+        <result property="taskTitle"        column="task_title"        />
+        <result property="courseName"       column="course_name"       />
+        <result property="subjectType"      column="subject_type"      />
+        <result property="userId"           column="user_id"           />
+        <result property="studentName"      column="student_name"      />
+        <result property="studentNo"        column="student_no"        />
+        <result property="groupId"          column="group_id"          />
+        <result property="groupName"        column="group_name"        />
+        <result property="content"          column="content"           />
+        <result property="remark"           column="remark"            />
+        <result property="version"          column="version"           />
+        <result property="status"           column="status"            />
+        <result property="submitTime"       column="submit_time"       />
+        <result property="draftTime"        column="draft_time"        />
+        <result property="isOverdue"        column="is_overdue"        />
+        <result property="resubmitDeadline" column="resubmit_deadline" />
+        <result property="withdrawTime"     column="withdraw_time"     />
+        <result property="lateApplyStatus"  column="late_apply_status" />
+        <result property="lateReason"       column="late_reason"       />
+        <result property="lateApproveBy"    column="late_approve_by"   />
+        <result property="lateApproveTime"  column="late_approve_time" />
+        <result property="createTime"       column="create_time"       />
+        <result property="updateTime"       column="update_time"       />
+    </resultMap>
+
+    <resultMap type="EduSubmissionFile" id="EduSubmissionFileResult">
+        <id     property="id"           column="id"            />
+        <result property="submissionId" column="submission_id" />
+        <result property="version"      column="version"       />
+        <result property="fileId"       column="file_id"       />
+        <result property="fileName"     column="file_name"     />
+        <result property="fileSize"     column="file_size"     />
+        <result property="fileExt"      column="file_ext"      />
+        <result property="mimeType"     column="mime_type"     />
+        <result property="sortNo"       column="sort_no"       />
+        <result property="uploadTime"   column="upload_time"   />
+    </resultMap>
+
+    <sql id="selectEduSubmissionVo">
+        select s.submission_id, s.task_id, t.title as task_title, c.course_name,
+               s.subject_type, s.user_id, u.nick_name as student_name, p.student_no,
+               s.group_id, g.group_name, s.content, s.remark, s.version, s.status,
+               s.submit_time, s.draft_time, s.is_overdue, s.resubmit_deadline, s.withdraw_time,
+               s.late_apply_status, s.late_reason, s.late_approve_by, s.late_approve_time,
+               s.create_time, s.update_time
+        from edu_submission s
+        left join edu_task t on t.task_id = s.task_id
+        left join edu_course c on c.course_id = t.course_id
+        left join sys_user u on u.user_id = s.user_id
+        left join edu_user_profile p on p.user_id = s.user_id
+        left join edu_group g on g.group_id = s.group_id
+    </sql>
+
+    <select id="selectEduSubmissionById" parameterType="Long" resultMap="EduSubmissionResult">
+        <include refid="selectEduSubmissionVo"/>
+        where s.submission_id = #{submissionId}
+    </select>
+
+    <select id="selectByTaskAndUser" resultMap="EduSubmissionResult">
+        <include refid="selectEduSubmissionVo"/>
+        where s.task_id = #{taskId} and s.user_id = #{userId}
+        limit 1
+    </select>
+
+    <select id="selectSubmissionList" parameterType="EduSubmission" resultMap="EduSubmissionResult">
+        <include refid="selectEduSubmissionVo"/>
+        <where>
+            <if test="params.reviewTeacherId != null">and c.teacher_id = #{params.reviewTeacherId}</if>
+            <if test="taskId != null">and s.task_id = #{taskId}</if>
+            <if test="userId != null">and s.user_id = #{userId}</if>
+            <if test="status != null">and s.status = #{status}</if>
+            <if test="groupId != null">and s.group_id = #{groupId}</if>
+            <if test="studentNo != null and studentNo != ''">
+                and p.student_no like concat('%', #{studentNo}, '%')
+            </if>
+            <if test="studentName != null and studentName != ''">
+                and u.nick_name like concat('%', #{studentName}, '%')
+            </if>
+        </where>
+        order by s.submit_time desc, s.submission_id desc
+    </select>
+
+    <insert id="insertEduSubmission" parameterType="EduSubmission" useGeneratedKeys="true" keyProperty="submissionId">
+        insert into edu_submission (task_id, subject_type, user_id, group_id, content, remark, version,
+                                    status, submit_time, draft_time, is_overdue, resubmit_deadline,
+                                    late_apply_status, late_reason, create_time)
+        values (#{taskId}, #{subjectType}, #{userId}, #{groupId}, #{content}, #{remark}, #{version},
+                #{status}, #{submitTime}, #{draftTime}, #{isOverdue}, #{resubmitDeadline},
+                #{lateApplyStatus}, #{lateReason}, sysdate())
+    </insert>
+
+    <update id="updateEduSubmission" parameterType="EduSubmission">
+        update edu_submission
+        <set>
+            <if test="content != null">content = #{content},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="version != null">version = #{version},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="groupId != null">group_id = #{groupId},</if>
+            <if test="submitTime != null">submit_time = #{submitTime},</if>
+            <if test="draftTime != null">draft_time = #{draftTime},</if>
+            <if test="isOverdue != null and isOverdue != ''">is_overdue = #{isOverdue},</if>
+            <if test="resubmitDeadline != null">resubmit_deadline = #{resubmitDeadline},</if>
+            <if test="withdrawTime != null">withdraw_time = #{withdrawTime},</if>
+            <if test="lateApplyStatus != null">late_apply_status = #{lateApplyStatus},</if>
+            <if test="lateReason != null">late_reason = #{lateReason},</if>
+            <if test="lateApproveBy != null">late_approve_by = #{lateApproveBy},</if>
+            <if test="lateApproveTime != null">late_approve_time = #{lateApproveTime},</if>
+            update_time = sysdate()
+        </set>
+        where submission_id = #{submissionId}
+    </update>
+
+    <update id="syncParticipantStatus">
+        update edu_task_participant
+        set submit_status = #{submitStatus},
+            overdue_flag = #{overdueFlag}
+        where task_id = #{taskId} and user_id = #{userId}
+    </update>
+
+    <select id="selectFiles" resultMap="EduSubmissionFileResult">
+        select id, submission_id, version, file_id, file_name, file_size, file_ext, mime_type,
+               sort_no, upload_time
+        from edu_submission_file
+        where submission_id = #{submissionId}
+        <if test="version != null">and version = #{version}</if>
+        order by version desc, sort_no, id
+    </select>
+
+    <delete id="deleteFilesByVersion">
+        delete from edu_submission_file
+        where submission_id = #{submissionId} and version = #{version}
+    </delete>
+
+    <insert id="batchInsertFiles">
+        insert into edu_submission_file (submission_id, version, file_id, file_name, file_size,
+                                         file_ext, mime_type, sort_no, upload_time) values
+        <foreach collection="list" item="it" separator=",">
+            (#{submissionId}, #{version}, #{it.fileId}, #{it.fileName}, #{it.fileSize},
+             #{it.fileExt}, #{it.mimeType}, #{it.sortNo}, sysdate())
+        </foreach>
+    </insert>
+
+    <insert id="insertVersion">
+        insert into edu_submission_version (submission_id, version, content, file_snapshot,
+                                            submit_time, operator_id)
+        values (#{submissionId}, #{version}, #{content}, #{fileSnapshot}, sysdate(), #{operatorId})
+    </insert>
+
+    <select id="selectVersions" parameterType="Long" resultType="java.util.LinkedHashMap">
+        select id as versionId, version, content, file_snapshot as fileSnapshot,
+               submit_time as submitTime, operator_id as operatorId
+        from edu_submission_version
+        where submission_id = #{submissionId}
+        order by version desc
+    </select>
+
+    <select id="selectLastReturnReason" parameterType="Long" resultType="java.lang.String">
+        select return_reason from edu_review
+        where submission_id = #{submissionId} and is_return = '1'
+        order by review_id desc limit 1
+    </select>
+
+    <select id="countByTaskAndStatus" resultType="int">
+        select count(1) from edu_submission
+        where task_id = #{taskId} and status = #{status}
+    </select>
+
+</mapper>

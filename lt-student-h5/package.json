@@ -1,0 +1,23 @@
+{
+  "name": "lt-student-h5",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "法律实训数字平台 · 工程 B 学生移动端（E3）",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "pinia": "^2.2.4",
+    "vant": "^4.9.7",
+    "vue": "^3.5.12",
+    "vue-router": "^4.4.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.4",
+    "vite": "^5.4.10"
+  }
+}

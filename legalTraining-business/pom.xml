@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>legalTraining</artifactId>
+        <groupId>com.legaltraining</groupId>
+        <version>3.9.2</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>legalTraining-business</artifactId>
+
+    <description>
+        业务模块：教学（edu）、展厅（exh）、运营（ops）
+        包边界即未来服务边界，见 docs/01-总体架构与工程落地.md 2.1
+    </description>
+
+    <dependencies>
+
+        <!-- 通用工具-->
+        <dependency>
+            <groupId>com.legaltraining</groupId>
+            <artifactId>legalTraining-common</artifactId>
+        </dependency>
+
+        <!-- 身份与权限、系统参数：business 允许依赖 system（system 不反向依赖业务域） -->
+        <dependency>
+            <groupId>com.legaltraining</groupId>
+            <artifactId>legalTraining-system</artifactId>
+        </dependency>
+
+    </dependencies>
+
+</project>

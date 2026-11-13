@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.edu.mapper.EduTaskMapper">
+
+    <resultMap type="EduTask" id="EduTaskResult">
+        <id     property="taskId"           column="task_id"           />
+        <result property="courseId"         column="course_id"         />
+        <result property="courseName"       column="course_name"       />
+        <result property="title"            column="title"             />
+        <result property="requirement"      column="requirement"       />
+        <result property="templateFile"     column="template_file"     />
+        <result property="startTime"        column="start_time"        />
+        <result property="deadline"         column="deadline"          />
+        <result property="deadlinePolicy"   column="deadline_policy"   />
+        <result property="graceDays"        column="grace_days"        />
+        <result property="finishMode"       column="finish_mode"       />
+        <result property="groupMin"         column="group_min"         />
+        <result property="groupMax"         column="group_max"         />
+        <result property="scoreMode"        column="score_mode"        />
+        <result property="totalScore"       column="total_score"       />
+        <result property="weightCheck"      column="weight_check"      />
+        <result property="status"           column="status"            />
+        <result property="publishTime"      column="publish_time"      />
+        <result property="cancelReason"     column="cancel_reason"     />
+        <result property="archiveFlag"      column="archive_flag"      />
+        <result property="createBy"         column="create_by"         />
+        <result property="createTime"       column="create_time"       />
+        <result property="updateBy"         column="update_by"         />
+        <result property="updateTime"       column="update_time"       />
+        <result property="participantCount" column="participant_count" />
+        <result property="submittedCount"   column="submitted_count"   />
+        <result property="pendingCount"     column="pending_count"     />
+    </resultMap>
+
+    <resultMap type="EduTaskScoreItem" id="EduTaskScoreItemResult">
+        <id     property="itemId"    column="item_id"    />
+        <result property="taskId"    column="task_id"    />
+        <result property="itemName"  column="item_name"  />
+        <result property="weight"    column="weight"     />
+        <result property="maxScore"  column="max_score"  />
+        <result property="sortNo"    column="sort_no"    />
+        <result property="remark"    column="remark"     />
+    </resultMap>
+
+    <resultMap type="EduTaskExhibit" id="EduTaskExhibitResult">
+        <id     property="id"         column="id"          />
+        <result property="taskId"     column="task_id"     />
+        <result property="targetType" column="target_type" />
+        <result property="targetId"   column="target_id"   />
+    </resultMap>
+
+    <sql id="selectEduTaskVo">
+        select t.task_id, t.course_id, c.course_name, t.title, t.requirement, t.template_file,
+               t.start_time, t.deadline, t.deadline_policy, t.grace_days, t.finish_mode,
+               t.group_min, t.group_max, t.score_mode, t.total_score, t.weight_check,
+               t.status, t.publish_time, t.cancel_reason, t.archive_flag,
+               t.create_by, t.create_time, t.update_by, t.update_time,
+               (select count(1) from edu_task_participant p where p.task_id = t.task_id) as participant_count,
+               (select count(1) from edu_task_participant p where p.task_id = t.task_id
+                 and p.submit_status in (2, 3)) as submitted_count,
+               (select count(1) from edu_task_participant p where p.task_id = t.task_id
+                 and p.submit_status = 2) as pending_count
+        from edu_task t
+        left join edu_course c on c.course_id = t.course_id
+    </sql>
+
+    <select id="selectEduTaskById" parameterType="Long" resultMap="EduTaskResult">
+        <include refid="selectEduTaskVo"/>
+        where t.task_id = #{taskId} and t.del_flag = '0'
+    </select>
+
+    <select id="selectEduTaskList" parameterType="EduTask" resultMap="EduTaskResult">
+        <include refid="selectEduTaskVo"/>
+        <where>
+            t.del_flag = '0'
+            <if test="courseId != null">and t.course_id = #{courseId}</if>
+            <if test="status != null">and t.status = #{status}</if>
+            <if test="title != null and title != ''">
+                and t.title like concat('%', #{title}, '%')
+            </if>
+            <if test="params.courseIds != null">
+                and t.course_id in
+                <foreach collection="params.courseIds" item="cid" open="(" separator="," close=")">
+                    #{cid}
+                </foreach>
+            </if>
+        </where>
+        order by t.deadline desc, t.task_id desc
+    </select>
+
+    <insert id="insertEduTask" parameterType="EduTask" useGeneratedKeys="true" keyProperty="taskId">
+        insert into edu_task (course_id, title, requirement, template_file, start_time, deadline,
+                              deadline_policy, grace_days, finish_mode, group_min, group_max,
+                              score_mode, total_score, weight_check, status, publish_time,
+                              del_flag, create_by, create_time)
+        values (#{courseId}, #{title}, #{requirement}, #{templateFile}, #{startTime}, #{deadline},
+                #{deadlinePolicy}, #{graceDays}, #{finishMode}, #{groupMin}, #{groupMax},
+                #{scoreMode}, #{totalScore}, #{weightCheck}, #{status}, #{publishTime},
+                '0', #{createBy}, sysdate())
+    </insert>
+
+    <update id="updateEduTask" parameterType="EduTask">
+        update edu_task
+        <set>
+            <if test="title != null and title != ''">title = #{title},</if>
+            <if test="requirement != null">requirement = #{requirement},</if>
+            <if test="templateFile != null">template_file = #{templateFile},</if>
+            <if test="startTime != null">start_time = #{startTime},</if>
+            <if test="deadline != null">deadline = #{deadline},</if>
+            <if test="deadlinePolicy != null">deadline_policy = #{deadlinePolicy},</if>
+            <if test="graceDays != null">grace_days = #{graceDays},</if>
+            <if test="finishMode != null">finish_mode = #{finishMode},</if>
+            <if test="groupMin != null">group_min = #{groupMin},</if>
+            <if test="groupMax != null">group_max = #{groupMax},</if>
+            <if test="scoreMode != null">score_mode = #{scoreMode},</if>
+            <if test="totalScore != null">total_score = #{totalScore},</if>
+            <if test="weightCheck != null and weightCheck != ''">weight_check = #{weightCheck},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="publishTime != null">publish_time = #{publishTime},</if>
+            <if test="cancelReason != null">cancel_reason = #{cancelReason},</if>
+            <if test="archiveFlag != null and archiveFlag != ''">archive_flag = #{archiveFlag},</if>
+            update_by = #{updateBy},
+            update_time = sysdate()
+        </set>
+        where task_id = #{taskId}
+    </update>
+
+    <update id="deleteEduTaskById" parameterType="Long">
+        update edu_task set del_flag = '2', update_time = sysdate() where task_id = #{taskId}
+    </update>
+
+    <!-- ================= 评分项 ================= -->
+
+    <select id="selectScoreItems" parameterType="Long" resultMap="EduTaskScoreItemResult">
+        select item_id, task_id, item_name, weight, max_score, sort_no, remark
+        from edu_task_score_item where task_id = #{taskId}
+        order by sort_no, item_id
+    </select>
+
+    <delete id="deleteScoreItems" parameterType="Long">
+        delete from edu_task_score_item where task_id = #{taskId}
+    </delete>
+
+    <insert id="batchInsertScoreItems">
+        insert into edu_task_score_item (task_id, item_name, weight, max_score, sort_no, remark) values
+        <foreach collection="list" item="it" separator=",">
+            (#{taskId}, #{it.itemName}, #{it.weight}, #{it.maxScore}, #{it.sortNo}, #{it.remark})
+        </foreach>
+    </insert>
+
+    <!-- ================= 资源 / 展项 ================= -->
+
+    <select id="selectResourceIds" parameterType="Long" resultType="java.lang.Long">
+        select resource_id from edu_task_resource where task_id = #{taskId}
+    </select>
+
+    <delete id="deleteTaskResource" parameterType="Long">
+        delete from edu_task_resource where task_id = #{taskId}
+    </delete>
+
+    <insert id="batchInsertTaskResource">
+        insert into edu_task_resource (task_id, resource_id) values
+        <foreach collection="ids" item="rid" separator=",">
+            (#{taskId}, #{rid})
+        </foreach>
+    </insert>
+
+    <select id="selectExhibits" parameterType="Long" resultMap="EduTaskExhibitResult">
+        select id, task_id, target_type, target_id from edu_task_exhibit where task_id = #{taskId}
+    </select>
+
+    <delete id="deleteTaskExhibit" parameterType="Long">
+        delete from edu_task_exhibit where task_id = #{taskId}
+    </delete>
+
+    <insert id="batchInsertTaskExhibit">
+        insert into edu_task_exhibit (task_id, target_type, target_id) values
+        <foreach collection="list" item="it" separator=",">
+            (#{taskId}, #{it.targetType}, #{it.targetId})
+        </foreach>
+    </insert>
+
+    <!-- ================= 参与人 ================= -->
+
+    <select id="selectCourseStudentIds" parameterType="Long" resultType="java.lang.Long">
+        select distinct cs.user_id
+        from edu_class_student cs
+        where cs.is_current = '1'
+          and cs.class_id in (
+              select cc.class_id from edu_course_class cc where cc.course_id = #{courseId}
+              union
+              select c.class_id from edu_course c where c.course_id = #{courseId} and c.class_id is not null
+          )
+        order by cs.user_id
+    </select>
+
+    <select id="selectTaskGroupId" resultType="java.lang.Long">
+        select m.group_id
+        from edu_group_member m
+        join edu_group g on g.group_id = m.group_id
+        where g.task_id = #{taskId} and m.user_id = #{userId}
+        limit 1
+    </select>
+
+    <delete id="deleteParticipants" parameterType="Long">
+        delete from edu_task_participant where task_id = #{taskId}
+    </delete>
+
+    <insert id="batchInsertParticipants">
+        insert into edu_task_participant (task_id, user_id, submit_status, overdue_flag) values
+        <foreach collection="userIds" item="uid" separator=",">
+            (#{taskId}, #{uid}, 0, '0')
+        </foreach>
+    </insert>
+
+    <update id="fillParticipantGroup" parameterType="Long">
+        update edu_task_participant p
+        set p.group_id = (
+            select m.group_id from edu_group_member m
+            join edu_group g on g.group_id = m.group_id
+            where g.task_id = p.task_id and m.user_id = p.user_id
+            limit 1
+        )
+        where p.task_id = #{taskId}
+    </update>
+
+    <select id="countParticipants" parameterType="Long" resultType="int">
+        select count(1) from edu_task_participant where task_id = #{taskId}
+    </select>
+
+    <select id="countParticipant" resultType="int">
+        select count(1) from edu_task_participant
+        where task_id = #{taskId} and user_id = #{userId}
+    </select>
+
+    <select id="countBySubmitStatus" resultType="int">
+        select count(1) from edu_task_participant
+        where task_id = #{taskId} and submit_status = #{submitStatus}
+    </select>
+
+    <update id="expireTasks" parameterType="java.util.Date">
+        update edu_task
+        set status = 2, update_time = sysdate()
+        where status = 1 and del_flag = '0' and deadline &lt; #{now}
+    </update>
+
+    <select id="countSubmission" parameterType="Long" resultType="int">
+        select count(1) from edu_submission where task_id = #{taskId} and status in (2, 3, 4)
+    </select>
+
+    <select id="countPublishedScore" parameterType="Long" resultType="int">
+        select count(1) from edu_score where task_id = #{taskId} and status = 1
+    </select>
+
+    <update id="cancelParticipants">
+        update edu_task_participant
+        set submit_status = #{submitStatus}
+        where task_id = #{taskId} and submit_status in (0, 1, 2, 4, 5)
+    </update>
+
+    <select id="selectParticipantList" parameterType="Long" resultType="java.util.LinkedHashMap">
+        select p.user_id as userId, u.nick_name as userName, pr.student_no as studentNo,
+               p.group_id as groupId, g.group_name as groupName,
+               p.submit_status as submitStatus, p.overdue_flag as overdueFlag,
+               s.submission_id as submissionId, s.status as submissionStatus, s.submit_time as submitTime
+        from edu_task_participant p
+        left join sys_user u on u.user_id = p.user_id
+        left join edu_user_profile pr on pr.user_id = p.user_id
+        left join edu_group g on g.group_id = p.group_id
+        left join edu_submission s on s.task_id = p.task_id and s.user_id = p.user_id
+        where p.task_id = #{taskId}
+        order by pr.student_no, p.user_id
+    </select>
+
+    <select id="countByCourseAndStatus" resultType="int">
+        select count(1) from edu_task
+        where course_id = #{courseId} and del_flag = '0'
+        <if test="status != null">and status = #{status}</if>
+    </select>
+
+</mapper>

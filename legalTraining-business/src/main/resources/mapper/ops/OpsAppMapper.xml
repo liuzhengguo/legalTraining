@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.legaltraining.business.ops.mapper.OpsAppMapper">
+
+    <resultMap type="OpsApp" id="OpsAppResult">
+        <id     property="appId"      column="app_id"      />
+        <result property="appCode"    column="app_code"    />
+        <result property="appSecret"  column="app_secret"  />
+        <result property="appName"    column="app_name"    />
+        <result property="ownerUnit"  column="owner_unit"  />
+        <result property="contact"    column="contact"     />
+        <result property="status"     column="status"      />
+        <result property="expiredAt"  column="expired_at"  />
+        <result property="rateLimit"  column="rate_limit"  />
+        <result property="createBy"   column="create_by"   />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <resultMap type="OpsAppApi" id="OpsAppApiResult">
+        <id     property="id"           column="id"             />
+        <result property="appId"        column="app_id"         />
+        <result property="apiCode"      column="api_code"       />
+        <result property="quotaPerMin"  column="quota_per_min"  />
+        <result property="enable"       column="enable"         />
+    </resultMap>
+
+    <resultMap type="OpsAppIp" id="OpsAppIpResult">
+        <id     property="id"      column="id"      />
+        <result property="appId"   column="app_id"  />
+        <result property="ipAddr"  column="ip_addr" />
+        <result property="remark"  column="remark"  />
+    </resultMap>
+
+    <resultMap type="OpsCallLog" id="OpsCallLogResult">
+        <id     property="id"          column="id"          />
+        <result property="appId"       column="app_id"      />
+        <result property="appCode"     column="app_code"    />
+        <result property="apiCode"     column="api_code"    />
+        <result property="requestUri"  column="request_uri" />
+        <result property="method"      column="method"      />
+        <result property="clientIp"    column="client_ip"   />
+        <result property="httpStatus"  column="http_status" />
+        <result property="costMs"      column="cost_ms"     />
+        <result property="reqId"       column="req_id"      />
+        <result property="errorMsg"    column="error_msg"   />
+        <result property="callTime"    column="call_time"   />
+    </resultMap>
+
+    <sql id="selectOpsAppVo">
+        select app_id, app_code, app_secret, app_name, owner_unit, contact,
+               status, expired_at, rate_limit, create_by, create_time, update_time
+        from ops_app
+    </sql>
+
+    <select id="selectOpsAppList" parameterType="OpsApp" resultMap="OpsAppResult">
+        <include refid="selectOpsAppVo"/>
+        <where>
+            <if test="appCode != null and appCode != ''">
+                and app_code like concat('%', #{appCode}, '%')
+            </if>
+            <if test="appName != null and appName != ''">
+                and app_name like concat('%', #{appName}, '%')
+            </if>
+            <if test="status != null">and status = #{status}</if>
+        </where>
+        order by app_id desc
+    </select>
+
+    <select id="selectOpsAppById" parameterType="Long" resultMap="OpsAppResult">
+        <include refid="selectOpsAppVo"/>
+        where app_id = #{appId}
+    </select>
+
+    <select id="selectByAppCode" parameterType="String" resultMap="OpsAppResult">
+        <include refid="selectOpsAppVo"/>
+        where app_code = #{appCode}
+    </select>
+
+    <insert id="insertOpsApp" parameterType="OpsApp" useGeneratedKeys="true" keyProperty="appId">
+        insert into ops_app (app_code, app_secret, app_name, owner_unit, contact, status,
+                             expired_at, rate_limit, create_by, create_time)
+        values (#{appCode}, #{appSecret}, #{appName}, #{ownerUnit}, #{contact}, #{status},
+                #{expiredAt}, #{rateLimit}, #{createBy}, sysdate())
+    </insert>
+
+    <update id="updateOpsApp" parameterType="OpsApp">
+        update ops_app
+        <set>
+            <if test="appName != null and appName != ''">app_name = #{appName},</if>
+            <if test="ownerUnit != null">owner_unit = #{ownerUnit},</if>
+            <if test="contact != null">contact = #{contact},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="expiredAt != null">expired_at = #{expiredAt},</if>
+            <if test="rateLimit != null">rate_limit = #{rateLimit},</if>
+            update_time = sysdate()
+        </set>
+        where app_id = #{appId}
+    </update>
+
+    <delete id="deleteOpsAppByIds" parameterType="Long">
+        delete from ops_app where app_id in
+        <foreach collection="array" item="appId" open="(" separator="," close=")">
+            #{appId}
+        </foreach>
+    </delete>
+
+    <update id="updateSecret">
+        update ops_app set app_secret = #{appSecret}, update_time = sysdate()
+        where app_id = #{appId}
+    </update>
+
+    <select id="selectApis" parameterType="Long" resultMap="OpsAppApiResult">
+        select id, app_id, api_code, quota_per_min, enable
+        from ops_app_api where app_id = #{appId} order by api_code
+    </select>
+
+    <delete id="deleteApis" parameterType="Long">
+        delete from ops_app_api where app_id = #{appId}
+    </delete>
+
+    <insert id="batchInsertApis">
+        insert into ops_app_api (app_id, api_code, quota_per_min, enable) values
+        <foreach collection="list" item="it" separator=",">
+            (#{it.appId}, #{it.apiCode}, #{it.quotaPerMin}, #{it.enable})
+        </foreach>
+    </insert>
+
+    <select id="selectIps" parameterType="Long" resultMap="OpsAppIpResult">
+        select id, app_id, ip_addr, remark from ops_app_ip where app_id = #{appId} order by id
+    </select>
+
+    <delete id="deleteIps" parameterType="Long">
+        delete from ops_app_ip where app_id = #{appId}
+    </delete>
+
+    <insert id="batchInsertIps">
+        insert into ops_app_ip (app_id, ip_addr, remark) values
+        <foreach collection="list" item="it" separator=",">
+            (#{it.appId}, #{it.ipAddr}, #{it.remark})
+        </foreach>
+    </insert>
+
+    <select id="selectApiGrant" resultMap="OpsAppApiResult">
+        select id, app_id, api_code, quota_per_min, enable
+        from ops_app_api
+        where app_id = #{appId} and api_code = #{apiCode} and enable = '1'
+        limit 1
+    </select>
+
+    <insert id="insertCallLog" parameterType="OpsCallLog" useGeneratedKeys="true" keyProperty="id">
+        insert into ops_call_log (app_id, api_code, request_uri, method, client_ip,
+                                  http_status, cost_ms, req_id, error_msg, call_time)
+        values (#{appId}, #{apiCode}, #{requestUri}, #{method}, #{clientIp},
+                #{httpStatus}, #{costMs}, #{reqId}, #{errorMsg}, sysdate())
+    </insert>
+
+    <select id="selectCallLogList" parameterType="OpsCallLog" resultMap="OpsCallLogResult">
+        select l.id, l.app_id, a.app_code, l.api_code, l.request_uri, l.method, l.client_ip,
+               l.http_status, l.cost_ms, l.req_id, l.error_msg, l.call_time
+        from ops_call_log l
+        left join ops_app a on a.app_id = l.app_id
+        <where>
+            <if test="appId != null">and l.app_id = #{appId}</if>
+            <if test="apiCode != null and apiCode != ''">and l.api_code = #{apiCode}</if>
+            <if test="httpStatus != null">and l.http_status = #{httpStatus}</if>
+        </where>
+        order by l.id desc
+    </select>
+
+</mapper>
