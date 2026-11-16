@@ -33,6 +33,9 @@ public class EduTaskController extends BaseController
     @Autowired
     private IEduTaskService eduTaskService;
 
+    @Autowired
+    private com.legaltraining.business.edu.scope.BusinessScopeChecker businessScope;
+
     @PreAuthorize("@ss.hasPermi('edu:task:list')")
     @GetMapping("/list")
     public TableDataInfo list(EduTask eduTask)
@@ -46,7 +49,10 @@ public class EduTaskController extends BaseController
     @GetMapping("/{taskId}")
     public AjaxResult getInfo(@PathVariable Long taskId)
     {
-        return success(eduTaskService.selectEduTaskById(taskId));
+        EduTask task = eduTaskService.selectEduTaskById(taskId);
+        if (task == null) return error("任务不存在");
+        businessScope.requireCourseAccess(task.getCourseId());
+        return success(task);
     }
 
     @Log(title = "实训任务", businessType = BusinessType.INSERT)

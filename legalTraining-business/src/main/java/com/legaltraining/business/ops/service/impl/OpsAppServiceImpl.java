@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +34,7 @@ import com.legaltraining.common.utils.StringUtils;
 @Service
 public class OpsAppServiceImpl implements IOpsAppService
 {
+    private static final Logger logger = LoggerFactory.getLogger(OpsAppServiceImpl.class);
     /** 允许的时间偏移（毫秒） */
     private static final long TIME_WINDOW_MS = 5 * 60 * 1000L;
 
@@ -122,8 +126,19 @@ public class OpsAppServiceImpl implements IOpsAppService
         }
         String secretPlain = OpenApiSign.randomSecret();
         opsAppMapper.updateSecret(appId, OpenApiSign.signKey(secretPlain));
-        // 旧签名立即失效：清掉该应用的限流与 nonce 缓存
         return secretPlain;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void saveAuthorization(Long appId, List<OpsAppApi> apis, List<OpsAppIp> ips)
+    {
+        if (opsAppMapper.selectOpsAppById(appId) == null)
+        {
+            throw new ServiceException("应用不存在");
+        }
+        saveApis(appId, apis);
+        saveIps(appId, ips);
     }
 
     @Override
@@ -268,9 +283,37 @@ public class OpsAppServiceImpl implements IOpsAppService
     @Override
     public void record(OpsCallLog log)
     {
-        if (log != null)
+        if (log == null)
         {
-            opsAppMapper.insertCallLog(log);
+            return;
+        }
+        if (log.getAppId() == null && log.getAppCode() != null && log.getAppCode().matches("[A-Za-z0-9_-]{1,64}"))
+        {
+            OpsApp known = opsAppMapper.selectByAppCode(log.getAppCode());
+            if (known != null)
+            {
+                log.setAppId(known.getAppId());
+            }
+        }
+        opsAppMapper.insertCallLog(log);
+        if (log.getHttpStatus() >= 500)
+        {
+            String endpoint = log.getApiCode() == null ? "unknown" : log.getApiCode();
+            Boolean first = true;
+            try
+            {
+                first = redisCache.redisTemplate.opsForValue()
+                        .setIfAbsent("openapi:incident:" + endpoint, 1, 5, TimeUnit.MINUTES);
+            }
+            catch (DataAccessException ignored)
+            {
+                // The incident must remain visible when Redis itself is unavailable.
+            }
+            if (Boolean.TRUE.equals(first))
+            {
+                logger.warn("OpenAPI upstream/server error: endpoint={}, status={}, callLogId={}",
+                        endpoint, log.getHttpStatus(), log.getId());
+            }
         }
     }
 

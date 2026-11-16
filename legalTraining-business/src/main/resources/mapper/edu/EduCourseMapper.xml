@@ -146,6 +146,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         select count(1) from edu_course_resource where course_id = #{courseId}
     </select>
 
+    <insert id="copyCaseReferences">
+        insert into ops_case_reference(target_type,target_id,case_id,title,created_at)
+        select target_type,#{targetId},case_id,title,created_at from ops_case_reference
+        where target_type=#{type} and target_id=#{sourceId}
+    </insert>
+
     <insert id="copyResourceLinks">
         insert into edu_course_resource (course_id, resource_id, sort_no)
         select #{targetId}, resource_id, sort_no

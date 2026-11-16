@@ -26,6 +26,12 @@ import com.legaltraining.common.utils.html.EscapeUtil;
 @RestControllerAdvice
 public class GlobalExceptionHandler
 {
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public org.springframework.http.ResponseEntity<Void> missingStaticResource()
+    {
+        return org.springframework.http.ResponseEntity.notFound().build();
+    }
+
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**

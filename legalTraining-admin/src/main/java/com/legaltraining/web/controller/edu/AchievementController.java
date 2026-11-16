@@ -39,20 +39,24 @@ public class AchievementController extends BaseController
     private static final Set<String> CHECKS = Set.of("accuracy", "compliance", "copyright", "privacy", "usability");
     private static final Set<String> SIGN_MODES = Set.of("实名", "部分匿名", "完全匿名");
     private static final Set<String> SCOPES = Set.of("仅展厅内", "含对外分享");
-    private static final String LIST = "select r.rec_id as recId,r.submission_id as submissionId,r.reason,r.status,"
+    private static final String LIST = "select r.rec_id as recId,r.submission_id as submissionId,r.reason,r.status,r.push_status as pushStatus,r.push_retry as pushRetry,"
             + "r.sign_mode as signMode,r.scope_desc as scopeDesc,r.review_opinion as opinion,r.exhibit_id as exhibitId,"
-            + "t.title,z.zone_name as zoneName,r.level_code as levelCode,i.status as exhibitStatus,"
+            + "t.title,z.zone_name as zoneName,r.level_code as levelCode,coalesce(i.status,x.exhibit_status) as exhibitStatus,"
             + "exists(select 1 from edu_authorization a where a.rec_id=r.rec_id and a.auth_type=1 and a.file_id is not null) as hasAuthFile "
             + "from edu_recommendation r join edu_submission s on s.submission_id=r.submission_id "
             + "join edu_task t on t.task_id=s.task_id left join exh_zone z on z.zone_id=r.target_zone "
-            + "left join exh_item i on i.item_id=r.exhibit_id ";
+            + "left join exh_item i on i.item_id=r.exhibit_id and i.source_rec=r.rec_id "
+            + "left join ops_rec_exhibit_state x on x.rec_id=r.rec_id and x.item_id=r.exhibit_id and r.status=2 ";
     private final JdbcTemplate jdbc;
     private final BusinessScopeChecker scope;
+    private final com.legaltraining.web.controller.ops.RecPushQueue pushQueue;
 
-    public AchievementController(JdbcTemplate jdbc, BusinessScopeChecker scope)
+    public AchievementController(JdbcTemplate jdbc, BusinessScopeChecker scope,
+            com.legaltraining.web.controller.ops.RecPushQueue pushQueue)
     {
         this.jdbc = jdbc;
         this.scope = scope;
+        this.pushQueue = pushQueue;
     }
 
     public record Recommendation(@NotNull Long submissionId, @NotNull Long zoneId,
@@ -117,13 +121,16 @@ public class AchievementController extends BaseController
                 id, getUserId());
         if (rec.get("exhibit_id") != null)
         {
-            jdbc.update("update exh_item set status=3,offline_time=now(),offline_reason='学生撤回展示授权' where item_id=?",
-                    rec.get("exhibit_id"));
-            jdbc.update("update exh_publish_job set status=3,fail_reason='学生撤回展示授权' where item_id=? and status=0",
-                    rec.get("exhibit_id"));
+            jdbc.update("update exh_item set status=3,offline_time=now(),offline_reason='学生撤回展示授权' where item_id=? and source_rec=?",
+                    rec.get("exhibit_id"), id);
+            jdbc.update("""
+                    update exh_publish_job j join exh_item i on i.item_id=j.item_id
+                    set j.status=3,j.fail_reason='学生撤回展示授权' where j.item_id=? and j.status=0 and i.source_rec=?
+                    """, rec.get("exhibit_id"), id);
         }
         jdbc.update("update edu_authorization set status=2 where auth_id=?", rec.get("auth_id"));
         jdbc.update("update edu_recommendation set status=4,withdraw_by=?,withdraw_time=now() where rec_id=?", getUserId(), id);
+        pushQueue.cancel(id);
         notify("NT-10", number(rec, "teacher_id"), id, "学生已撤回成果展示授权", null);
         return success();
     }
@@ -147,7 +154,7 @@ public class AchievementController extends BaseController
                 decision.accept() ? 1 : 4, decision.signMode(), decision.scope(), id);
         if (decision.accept())
         {
-            notifyAuditors(id);
+            dispatchRecommendation(id);
         }
         else
         {
@@ -164,7 +171,7 @@ public class AchievementController extends BaseController
         {
             return success(jdbc.queryForList(LIST + "where r.status in (2,5) order by r.rec_id desc"));
         }
-        return success(jdbc.queryForList(LIST + "where (r.status in (1,2,3,5) "
+        return success(jdbc.queryForList(LIST + "where (r.status in (2,3,5) or (" + pushQueue.visibleAuditQueue() + ") "
                 + "or exists(select 1 from exh_review h where h.rec_id=r.rec_id)) order by r.rec_id desc"));
     }
 
@@ -173,7 +180,7 @@ public class AchievementController extends BaseController
     public AjaxResult auditDetail(@PathVariable long id)
     {
         Map<String, Object> detail = row("select s.content,r.status from edu_recommendation r join edu_submission s "
-                + "on s.submission_id=r.submission_id where r.rec_id=? and (r.status in (1,2,3,5) "
+                + "on s.submission_id=r.submission_id where r.rec_id=? and (r.status in (2,3,5) or (" + pushQueue.visibleAuditQueue() + ") "
                 + "or exists(select 1 from exh_review h where h.rec_id=r.rec_id))", id);
         List<Map<String, Object>> history = jdbc.queryForList(
                 "select h.review_id as reviewId,h.check_items as checks,h.result,h.opinion,"
@@ -196,7 +203,11 @@ public class AchievementController extends BaseController
     {
         Map<String, Object> rec = row("select r.status,r.teacher_id,s.user_id from edu_recommendation r "
                 + "join edu_submission s on s.submission_id=r.submission_id where r.rec_id=? for update", id);
-        if (number(rec, "status") != 1) throw new ServiceException("当前成果不在待审状态");
+        if (number(rec, "status") != 1
+                || pushQueue.enabled() && jdbc.queryForObject("""
+                        select count(*) from ops_rec_push_job where rec_id=? and (status<>1 or ?)
+                        """, Integer.class, id, pushQueue.independentReceiver()) > 0)
+            throw new ServiceException("当前成果不在待审状态或尚未送达");
         if (number(rec, "teacher_id") == getUserId()) throw new ServiceException("推荐人不得审核自己的推荐");
         if (decision.approve() && !CHECKS.equals(decision.checks())) throw new ServiceException("须完成五项审核");
         if (!decision.approve() && (decision.opinion() == null || decision.opinion().isBlank()))
@@ -226,6 +237,9 @@ public class AchievementController extends BaseController
                 + "join edu_task t on t.task_id=s.task_id join sys_user u on u.user_id=s.user_id "
                 + "left join edu_user_profile p on p.user_id=s.user_id where r.rec_id=? for update", id);
         if (number(rec, "status") != 2) throw new ServiceException("只有审核通过的成果可转为展项");
+        if (pushQueue.independentReceiver() && !jdbc.queryForList(
+                "select rec_id from ops_rec_push_job where rec_id=?", Long.class, id).isEmpty())
+            throw new ServiceException("独立展厅接收的成果须在展厅侧生成展项");
         String studentNo = (String) rec.get("student_no");
         String author = switch ((String) rec.get("sign_mode"))
         {
@@ -256,6 +270,7 @@ public class AchievementController extends BaseController
         jdbc.update("update edu_authorization set status=2 where rec_id=? and status=0", id);
         jdbc.update("update edu_recommendation set status=4,withdraw_by=?,withdraw_time=now(),update_time=now() where rec_id=?",
                 getUserId(), id);
+        pushQueue.cancel(id);
         return success();
     }
 
@@ -296,10 +311,10 @@ public class AchievementController extends BaseController
         int updated = jdbc.update("update edu_authorization set auth_type=1,status=1,sign_mode=?,scope_desc=?,file_id=?,confirm_time=now() "
                 + "where rec_id=? and status=0", signMode, scopeMode, fileId, id);
         if (updated != 1) throw new ServiceException("该成果没有待确认的授权记录");
-        jdbc.update("update edu_recommendation set status=1,sign_mode=?,scope_desc=?,push_status=1,update_time=now() where rec_id=?",
+        jdbc.update("update edu_recommendation set status=1,sign_mode=?,scope_desc=?,push_status=0,update_time=now() where rec_id=?",
                 signMode, scopeMode, id);
         notify("NT-08", number(rec, "user_id"), id, "成果授权已线下登记", "纸质授权书已登记，成果进入审核流程");
-        notifyAuditors(id);
+        dispatchRecommendation(id);
         return success();
     }
 
@@ -338,6 +353,7 @@ public class AchievementController extends BaseController
                 input.transferTo(output);
             }
         }
+        mediaJournal.captureAuthorization(target);
         return fileId;
     }
 
@@ -362,6 +378,9 @@ public class AchievementController extends BaseController
                 .body(new FileSystemResource(path));
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.legaltraining.web.controller.ops.MediaRecoveryJournal mediaJournal;
+
     private Path authorizationDirectory()
     {
         Path profile = Path.of(LegalTrainingConfig.getProfile()).toAbsolutePath().normalize();
@@ -374,9 +393,13 @@ public class AchievementController extends BaseController
     {
         Map<String, Object> rec = row("select r.rec_id,r.status,r.reason,r.sign_mode as signMode,r.scope_desc as scopeDesc,"
                 + "r.exhibit_id as exhibitId,r.review_opinion as opinion,r.auditor_id as auditorId,r.audit_time as auditTime,"
-                + "r.push_status as pushStatus,r.withdraw_time as withdrawTime,t.title,s.user_id as studentId,r.teacher_id "
+                + "r.push_status as pushStatus,r.withdraw_time as withdrawTime,t.title,s.user_id as studentId,r.teacher_id,"
+                + "coalesce(i.status,x.exhibit_status) as exhibitStatus "
                 + "from edu_recommendation r join edu_submission s on s.submission_id=r.submission_id "
-                + "join edu_task t on t.task_id=s.task_id where r.rec_id=?", id);
+                + "join edu_task t on t.task_id=s.task_id "
+                + "left join exh_item i on i.item_id=r.exhibit_id and i.source_rec=r.rec_id "
+                + "left join ops_rec_exhibit_state x on x.rec_id=r.rec_id and x.item_id=r.exhibit_id and r.status=2 "
+                + "where r.rec_id=?", id);
         long uid = getUserId();
         boolean teacher = number(rec, "teacher_id") == uid;
         boolean student = number(rec, "studentId") == uid;
@@ -410,6 +433,17 @@ public class AchievementController extends BaseController
     {
         jdbc.update("insert into ops_notification(event_code,receiver_id,title,content,biz_type,biz_id,send_time) "
                 + "values(?,?,?,?,'rec',?,now())", event, user, title, content, id);
+    }
+
+    private void dispatchRecommendation(long id)
+    {
+        if (pushQueue.enabled())
+        {
+            pushQueue.enqueue(id);
+            return;
+        }
+        jdbc.update("update edu_recommendation set push_status=1 where rec_id=?", id);
+        notifyAuditors(id);
     }
 
     private void notifyAuditors(long id)

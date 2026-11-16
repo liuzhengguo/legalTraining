@@ -11,7 +11,7 @@ import com.legaltraining.business.ops.domain.OpsCallLog;
 import com.legaltraining.business.ops.service.IOpsAppService;
 import com.legaltraining.business.ops.support.OpenApiException;
 import com.legaltraining.common.core.domain.AjaxResult;
-import com.legaltraining.common.utils.ip.IpUtils;
+import com.legaltraining.web.controller.openapi.OpenApiVersionPolicy;
 
 /**
  * 开放接口网关（OP-03-01~04）
@@ -25,11 +25,13 @@ import com.legaltraining.common.utils.ip.IpUtils;
 public class OpenApiInterceptor implements HandlerInterceptor
 {
     private static final String ATTR_START = "openapi.start";
-    private static final String ATTR_APP = "openapi.app";
+    public static final String ATTR_APP = "openapi.app";
     private static final String ATTR_CODE = "openapi.code";
 
     @Autowired
     private IOpsAppService opsAppService;
+    @Autowired
+    private OpenApiVersionPolicy versions;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
@@ -43,12 +45,21 @@ public class OpenApiInterceptor implements HandlerInterceptor
         String timestamp = request.getHeader("X-Timestamp");
         String nonce = request.getHeader("X-Nonce");
         String sign = request.getHeader("X-Sign");
-        String clientIp = IpUtils.getIpAddr();
+        String clientIp = request.getRemoteAddr();
 
         try
         {
             OpsApp app = opsAppService.verify(appCode, timestamp, nonce, sign, uri, clientIp, apiCode);
             request.setAttribute(ATTR_APP, app);
+            var version = versions.current();
+            versions.writeHeaders(version, response, request.getContextPath());
+            if ("retired".equals(version.status()) && !uri.equals(request.getContextPath() + "/openapi/v1/version"))
+            {
+                response.setHeader("Cache-Control", "no-store");
+                writeError(response, 410, version.schedule().message());
+                log(request, clientIp, apiCode, app, 410, "接口版本已下线");
+                return false;
+            }
             return true;
         }
         catch (OpenApiException e)
@@ -75,7 +86,7 @@ public class OpenApiInterceptor implements HandlerInterceptor
             return;
         }
         String apiCode = (String) request.getAttribute(ATTR_CODE);
-        String clientIp = IpUtils.getIpAddr();
+        String clientIp = request.getRemoteAddr();
         int status = response.getStatus() >= 400 ? response.getStatus() : 200;
         log(request, clientIp, apiCode, (OpsApp) app, status, ex == null ? null : ex.getMessage());
     }
@@ -160,7 +171,8 @@ public class OpenApiInterceptor implements HandlerInterceptor
         {
             return "OP-02-05";
         }
-        if (uri.endsWith("/openapi/v1/rec/callback"))
+        if (uri.endsWith("/openapi/v1/rec/callback")
+                || uri.matches(".*/openapi/v1/rec/[0-9]+/evidence(?:/(?:authorization|[0-9]+))?"))
         {
             return "OP-02-06";
         }
@@ -168,7 +180,7 @@ public class OpenApiInterceptor implements HandlerInterceptor
         {
             return "OP-02-07";
         }
-        if (uri.endsWith("/openapi/v1/cases"))
+        if (uri.endsWith("/openapi/v1/cases") || uri.matches(".*/openapi/v1/cases/[^/]+"))
         {
             return "OP-02-08";
         }

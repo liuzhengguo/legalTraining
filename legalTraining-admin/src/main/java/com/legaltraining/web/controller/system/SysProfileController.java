@@ -117,6 +117,9 @@ public class SysProfileController extends BaseController
         return error("修改密码异常，请联系管理员");
     }
 
+    @Autowired
+    private com.legaltraining.web.controller.ops.MediaRecoveryJournal mediaJournal;
+
     /**
      * 头像上传
      */
@@ -128,12 +131,13 @@ public class SysProfileController extends BaseController
         {
             LoginUser loginUser = getLoginUser();
             String avatar = FileUploadUtils.upload(LegalTrainingConfig.getAvatarPath(), file, MimeTypeUtils.IMAGE_EXTENSION, true);
+            mediaJournal.captureUpload(avatar);
             if (userService.updateUserAvatar(loginUser.getUserId(), avatar))
             {
                 String oldAvatar = loginUser.getUser().getAvatar();
                 if (StringUtils.isNotEmpty(oldAvatar))
                 {
-                    FileUtils.deleteFile(LegalTrainingConfig.getProfile() + FileUtils.stripPrefix(oldAvatar));
+                    mediaJournal.deleteProfileFile(java.nio.file.Path.of(LegalTrainingConfig.getProfile() + FileUtils.stripPrefix(oldAvatar)));
                 }
                 AjaxResult ajax = AjaxResult.success();
                 ajax.put("imgUrl", avatar);

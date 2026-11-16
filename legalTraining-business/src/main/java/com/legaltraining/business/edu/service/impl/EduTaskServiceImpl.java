@@ -62,6 +62,9 @@ public class EduTaskServiceImpl implements IEduTaskService
     @Autowired
     private EduResourceMapper eduResourceMapper;
 
+    @Autowired
+    private com.legaltraining.business.edu.scope.BusinessScopeChecker businessScope;
+
     @Override
     public EduTask selectEduTaskById(Long taskId)
     {
@@ -79,6 +82,7 @@ public class EduTaskServiceImpl implements IEduTaskService
     @Override
     public List<EduTask> selectEduTaskList(EduTask eduTask)
     {
+        eduTask.getParams().put("teacherScope", businessScope.hasAnyRole("registrar") ? null : SecurityUtils.getUserId());
         return eduTaskMapper.selectEduTaskList(eduTask);
     }
 
@@ -447,6 +451,7 @@ public class EduTaskServiceImpl implements IEduTaskService
         {
             throw new ServiceException("任务不存在");
         }
+        businessScope.requireCourseAccess(task.getCourseId());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("taskId", task.getTaskId());
         result.put("title", task.getTitle());
@@ -663,6 +668,7 @@ public class EduTaskServiceImpl implements IEduTaskService
         {
             throw new ServiceException("所属课程不存在或已删除");
         }
+        businessScope.requireCourseAccess(courseId);
         if (course.getStatus() != null && course.getStatus() == COURSE_ARCHIVED)
         {
             throw new ServiceException("所属课程已归档，不可维护任务");
@@ -677,6 +683,7 @@ public class EduTaskServiceImpl implements IEduTaskService
         {
             throw new ServiceException("任务不存在或已删除");
         }
+        businessScope.requireCourseAccess(task.getCourseId());
         return task;
     }
 

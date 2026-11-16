@@ -12,6 +12,12 @@ public interface IEduScoreService
 {
     List<EduScore> selectScoreList(EduScore query);
 
+    List<Map<String, Object>> appeals(boolean mine, Long taskId);
+
+    void submitAppeal(Long scoreId, String reason);
+
+    void resolveAppeal(Long appealId, String reply, BigDecimal newScore);
+
     /** 学生端：我的成绩 */
     List<EduScore> selectMyScores(Long courseId);
 

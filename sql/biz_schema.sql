@@ -150,6 +150,31 @@ CREATE TABLE edu_group_member (
   KEY idx_gm_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分组成员';
 
+DROP TABLE IF EXISTS edu_task_team_option;
+DROP TABLE IF EXISTS edu_task_team_contribution;
+CREATE TABLE IF NOT EXISTS edu_task_team_option (
+  task_id bigint NOT NULL,
+  any_member_submit tinyint NOT NULL DEFAULT 0,
+  PRIMARY KEY (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS edu_task_team_contribution (
+  task_id bigint NOT NULL,
+  group_id bigint NOT NULL,
+  user_id bigint NOT NULL,
+  contribution varchar(500) DEFAULT NULL,
+  PRIMARY KEY (task_id,group_id,user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+DROP TABLE IF EXISTS edu_task_team_editor;
+CREATE TABLE IF NOT EXISTS edu_task_team_editor (
+  task_id bigint NOT NULL,
+  group_id bigint NOT NULL,
+  user_id bigint NOT NULL,
+  last_seen datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (task_id,group_id,user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 DROP TABLE IF EXISTS edu_transfer_log;
 CREATE TABLE edu_transfer_log (
   id          bigint      NOT NULL AUTO_INCREMENT,
@@ -512,6 +537,20 @@ CREATE TABLE edu_score_adjust (
   KEY idx_sa_score (score_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='成绩更正记录（TC-04-06 留痕+通知）';
 
+DROP TABLE IF EXISTS edu_score_appeal;
+CREATE TABLE IF NOT EXISTS edu_score_appeal (
+  appeal_id   bigint       NOT NULL AUTO_INCREMENT,
+  score_id    bigint       NOT NULL,
+  reason      varchar(500) NOT NULL,
+  status      tinyint      NOT NULL DEFAULT 0 COMMENT '0待处理 1维持成绩 2已更正',
+  reply       varchar(500)          DEFAULT NULL,
+  handler_id  bigint                DEFAULT NULL,
+  create_time datetime     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  handle_time datetime              DEFAULT NULL,
+  PRIMARY KEY (appeal_id),
+  UNIQUE KEY uk_score_appeal (score_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='成绩异议（ST-03-03）';
+
 DROP TABLE IF EXISTS edu_course_score;
 CREATE TABLE edu_course_score (
   id           bigint       NOT NULL AUTO_INCREMENT,
@@ -618,6 +657,7 @@ CREATE TABLE exh_zone (
   open_level  tinyint      NOT NULL DEFAULT 0 COMMENT '开放级别 0未开放 1内部开放 2对外开放（EF-06-01）',
   seo_index   char(1)      NOT NULL DEFAULT '0' COMMENT '是否允许搜索引擎收录',
   status      tinyint      NOT NULL DEFAULT 0 COMMENT '0关闭 1开放',
+  panorama_url varchar(500)         DEFAULT NULL COMMENT '2:1 等距柱状全景图',
   layout      varchar(16)  NOT NULL DEFAULT 'grid' COMMENT '展区版式 grid图墙/flow长页/timeline时间轴（EF-01-02）',
   bg_image    varchar(500)          DEFAULT NULL COMMENT '展区头图（网页版展示，非全景）',
   theme_color varchar(16)           DEFAULT NULL COMMENT '展区主色，前端取色渲染',
@@ -842,6 +882,22 @@ CREATE TABLE exh_playlist_item (
   KEY idx_pi_list (playlist_id, sort_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='播放列表条目（自动轮播）';
 
+CREATE TABLE IF NOT EXISTS exh_device_command (
+    command_id bigint NOT NULL AUTO_INCREMENT,
+    device_id bigint NOT NULL,
+    action varchar(16) NOT NULL,
+    status tinyint NOT NULL DEFAULT 0 COMMENT '0待执行 1执行中 2成功 3失败',
+    claim_token varchar(36),
+    detail varchar(240),
+    screenshot mediumblob,
+    operator_id bigint NOT NULL,
+    created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at datetime,
+    completed_at datetime,
+    PRIMARY KEY(command_id),
+    KEY idx_device_command(device_id,status,command_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 DROP TABLE IF EXISTS exh_device_event;
 CREATE TABLE exh_device_event (
   id          bigint      NOT NULL AUTO_INCREMENT,
@@ -961,6 +1017,42 @@ CREATE TABLE ops_notice_template (
   UNIQUE KEY uk_nt_event (event_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='通知模板（MG-06-04）';
 
+CREATE TABLE IF NOT EXISTS ops_rec_push_job (
+    rec_id bigint NOT NULL,
+    attempts int NOT NULL DEFAULT 0,
+    due_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_id varchar(36),
+    lease_until datetime,
+    status tinyint NOT NULL DEFAULT 0 COMMENT '0待发送 1已送达 2失败 3已取消',
+    last_error varchar(200),
+    PRIMARY KEY(rec_id),
+    KEY idx_rec_push_due(status,due_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ops_media_state (
+    path_hash binary(32) NOT NULL,
+    relative_path varbinary(2048) NOT NULL,
+    deleted tinyint NOT NULL DEFAULT 0,
+    byte_length bigint NOT NULL DEFAULT 0,
+    PRIMARY KEY(path_hash)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS ops_media_chunk (
+    path_hash binary(32) NOT NULL,
+    part int NOT NULL,
+    content mediumblob NOT NULL,
+    PRIMARY KEY(path_hash,part)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS ops_backup_policy (
+  id tinyint NOT NULL,
+  enabled tinyint NOT NULL DEFAULT 0,
+  full_hours int NOT NULL DEFAULT 168,
+  incremental_hours int NOT NULL DEFAULT 24,
+  retain_days int NOT NULL DEFAULT 30,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+INSERT IGNORE INTO ops_backup_policy(id) VALUES (1);
+
 DROP TABLE IF EXISTS ops_backup_record;
 CREATE TABLE ops_backup_record (
   id          bigint      NOT NULL AUTO_INCREMENT,
@@ -994,3 +1086,70 @@ CREATE TABLE ops_archive_unfreeze (
 
 SET FOREIGN_KEY_CHECKS = 1;
 -- 统计：业务表 57 张（edu_ 33 / exh_ 15 / ops_ 9），新增表请同步 docs/02-数据库设计.md 清单
+
+CREATE TABLE IF NOT EXISTS ops_case_reference (
+  target_type varchar(8) NOT NULL,
+  target_id bigint NOT NULL,
+  case_id varchar(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  title varchar(250) NOT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (target_type,target_id,case_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ops_rec_inbox (
+  id bigint NOT NULL AUTO_INCREMENT,
+  source_app varchar(64) NOT NULL,
+  source_rec_id bigint NOT NULL,
+  source_teacher varchar(64),
+  title varchar(200) NOT NULL,
+  content mediumtext,
+  reason varchar(1000),
+  sign_mode varchar(16) NOT NULL,
+  author_label varchar(100) NOT NULL DEFAULT '匿名',
+  scope_desc varchar(32) NOT NULL,
+  proof_type varchar(12) NOT NULL,
+  confirmed_at varchar(32) NOT NULL,
+  status tinyint NOT NULL DEFAULT 1,
+  decision_checks json,
+  opinion varchar(1000),
+  reviewed_at datetime,
+  reviewer_id bigint,
+  item_id bigint,
+  exhibit_status tinyint,
+  exhibit_revision bigint NOT NULL DEFAULT 0,
+  callback_state tinyint,
+  attempts int NOT NULL DEFAULT 0,
+  due_at datetime,
+  lease_until datetime,
+  lease_id varchar(36),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(id),
+  UNIQUE KEY uk_rec_inbox_source(source_app,source_rec_id),
+  UNIQUE KEY uk_rec_inbox_item(item_id),
+  KEY idx_rec_inbox_callback(callback_state,due_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ops_rec_exhibit_state (
+  rec_id bigint NOT NULL,
+  item_id bigint NOT NULL,
+  exhibit_status tinyint NOT NULL,
+  revision bigint NOT NULL,
+  PRIMARY KEY(rec_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ops_rec_evidence_snapshot (
+  rec_id bigint NOT NULL,
+  submission_id bigint NOT NULL,
+  submission_version int NOT NULL,
+  source_content mediumtext,
+  PRIMARY KEY(rec_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ops_rec_callback_receipt (
+  rec_id bigint NOT NULL,
+  callback_id varchar(36) NOT NULL,
+  payload_hash char(64) NOT NULL,
+  external_auditor_id bigint,
+  received_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(rec_id,callback_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

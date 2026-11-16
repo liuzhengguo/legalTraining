@@ -5,6 +5,16 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONException;
+import com.legaltraining.common.utils.file.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,6 +74,9 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
     @Autowired
     private EduTaskMapper eduTaskMapper;
 
+    @Autowired
+    private EduTaskTeamService teams;
+
     @Override
     public EduSubmission selectById(Long submissionId)
     {
@@ -81,7 +94,9 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         Long userId = currentUserId();
         EduTask task = mustTask(taskId);
         checkParticipant(taskId, userId);
-        EduSubmission sub = eduSubmissionMapper.selectByTaskAndUser(taskId, userId);
+        EduTaskTeamService.Team team = teams.forStudent(task, userId);
+        EduSubmission sub = submissionFor(taskId, userId, team);
+        boolean maySubmit = !groupTask(task) || team != null && team.confirmed() && (team.leaderId() == userId || teams.anyMemberSubmit(taskId));
         if (sub == null)
         {
             sub = new EduSubmission();
@@ -90,14 +105,14 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
             sub.setStatus(SUB_NOT_SUBMITTED);
             sub.setVersion(0);
             sub.setLateApplyStatus(LATE_NONE);
-            sub.setSubmittable(canSubmit(task, null, new Date()));
+            sub.setSubmittable(maySubmit && canSubmit(task, null, new Date()));
             sub.setWithdrawable(Boolean.FALSE);
             return sub;
         }
         sub.setFiles(eduSubmissionMapper.selectFiles(sub.getSubmissionId(), sub.getVersion()));
         sub.setReturnReason(eduSubmissionMapper.selectLastReturnReason(sub.getSubmissionId()));
-        sub.setSubmittable(canSubmit(task, sub, new Date()));
-        sub.setWithdrawable(isWithdrawable(task, sub, new Date()));
+        sub.setSubmittable(maySubmit && canSubmit(task, sub, new Date()));
+        sub.setWithdrawable(maySubmit && isWithdrawable(task, sub, new Date()));
         return sub;
     }
 
@@ -118,6 +133,7 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
     @Transactional(rollbackFor = Exception.class)
     public EduSubmission saveDraft(Long taskId, String content, List<EduSubmissionFile> files)
     {
+        teams.lockTask(taskId);
         EduTask task = mustTask(taskId);
         if (task.getStatus() != null && (task.getStatus() == TASK_CANCELLED || task.getStatus() == TASK_ARCHIVED))
         {
@@ -127,15 +143,15 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         List<EduSubmissionFile> clean = cleanFiles(files);
         Long userId = currentUserId();
         checkParticipant(taskId, userId);
-        EduSubmission exist = eduSubmissionMapper.selectByTaskAndUser(taskId, userId);
+        EduTaskTeamService.Team team = requireTeam(task, userId, false);
+        EduSubmission exist = submissionFor(taskId, userId, team);
+        rejectLegacyWrite(taskId, team);
         Date now = new Date();
         if (exist == null)
         {
             EduSubmission sub = new EduSubmission();
             sub.setTaskId(taskId);
-            sub.setSubjectType(0);
-            sub.setUserId(userId);
-            sub.setGroupId(eduTaskMapper.selectTaskGroupId(taskId, userId));
+            setSubject(sub, userId, team);
             sub.setContent(content);
             sub.setVersion(1);
             sub.setStatus(SUB_DRAFT);
@@ -144,7 +160,7 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
             sub.setLateApplyStatus(LATE_NONE);
             eduSubmissionMapper.insertEduSubmission(sub);
             saveFiles(sub.getSubmissionId(), 1, clean);
-            eduSubmissionMapper.syncParticipantStatus(taskId, userId, SUB_DRAFT, "0");
+            syncStatus(taskId, userId, team, SUB_DRAFT, "0");
             return selectById(sub.getSubmissionId());
         }
         if (exist.getStatus() != null && (exist.getStatus() == SUB_SUBMITTED || exist.getStatus() == SUB_REVIEWED))
@@ -163,7 +179,7 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         update.setStatus(SUB_DRAFT);
         eduSubmissionMapper.updateEduSubmission(update);
         saveFiles(exist.getSubmissionId(), exist.getVersion(), clean);
-        eduSubmissionMapper.syncParticipantStatus(taskId, userId, SUB_DRAFT, "0");
+        syncStatus(taskId, userId, team, SUB_DRAFT, "0");
         return selectById(exist.getSubmissionId());
     }
 
@@ -171,6 +187,7 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
     @Transactional(rollbackFor = Exception.class)
     public EduSubmission submit(Long taskId, String content, List<EduSubmissionFile> files)
     {
+        teams.lockTask(taskId);
         EduTask task = mustTask(taskId);
         if (task.getStatus() != null && (task.getStatus() == TASK_CANCELLED || task.getStatus() == TASK_ARCHIVED))
         {
@@ -184,7 +201,9 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         }
         Long userId = currentUserId();
         checkParticipant(taskId, userId);
-        EduSubmission exist = eduSubmissionMapper.selectByTaskAndUser(taskId, userId);
+        EduTaskTeamService.Team team = requireTeam(task, userId, true);
+        EduSubmission exist = submissionFor(taskId, userId, team);
+        rejectLegacyWrite(taskId, team);
         Date now = new Date();
 
         // 幂等：内容与附件完全一致且已是提交态，直接返回原记录，不产生新版本
@@ -207,9 +226,7 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         {
             EduSubmission sub = new EduSubmission();
             sub.setTaskId(taskId);
-            sub.setSubjectType(0);
-            sub.setUserId(userId);
-            sub.setGroupId(eduTaskMapper.selectTaskGroupId(taskId, userId));
+            setSubject(sub, userId, team);
             sub.setContent(content);
             sub.setVersion(1);
             sub.setStatus(SUB_SUBMITTED);
@@ -219,7 +236,8 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
             eduSubmissionMapper.insertEduSubmission(sub);
             saveFiles(sub.getSubmissionId(), 1, clean);
             writeVersion(sub.getSubmissionId(), 1, content, clean, userId);
-            eduSubmissionMapper.syncParticipantStatus(taskId, userId, SUB_SUBMITTED, overdue ? "1" : "0");
+            syncStatus(taskId, userId, team, SUB_SUBMITTED, overdue ? "1" : "0");
+            notifyReceipt(taskId, sub.getSubmissionId(), 1, userId, team);
             return selectById(sub.getSubmissionId());
         }
 
@@ -236,17 +254,26 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         eduSubmissionMapper.updateEduSubmission(update);
         saveFiles(exist.getSubmissionId(), newVersion, clean);
         writeVersion(exist.getSubmissionId(), newVersion, content, clean, userId);
-        eduSubmissionMapper.syncParticipantStatus(taskId, userId, SUB_SUBMITTED, overdue ? "1" : "0");
+        syncStatus(taskId, userId, team, SUB_SUBMITTED, overdue ? "1" : "0");
+        notifyReceipt(taskId, exist.getSubmissionId(), newVersion, userId, team);
         return selectById(exist.getSubmissionId());
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public EduSubmission withdraw(Long submissionId)
     {
         EduSubmission sub = mustSubmission(submissionId);
+        teams.lockTask(sub.getTaskId());
+        sub = currentSubmission(submissionId);
         checkSelf(sub);
         EduTask task = mustTask(sub.getTaskId());
+        EduTaskTeamService.Team team = requireTeam(task, currentUserId(), true);
+        if (Integer.valueOf(1).equals(sub.getSubjectType())
+                && (team == null || !Long.valueOf(team.id()).equals(sub.getGroupId())))
+        {
+            throw new ServiceException("提交不属于当前队伍");
+        }
         Date now = new Date();
         if (sub.getStatus() != null && sub.getStatus() == SUB_REVIEWED)
         {
@@ -260,24 +287,36 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         {
             throw new ServiceException("已过截止时间，不可撤回");
         }
+        if (eduSubmissionMapper.countReviewForVersion(submissionId, sub.getVersion()) > 0)
+        {
+            throw new ServiceException("教师已开始批阅，不可撤回");
+        }
         EduSubmission update = new EduSubmission();
         update.setSubmissionId(submissionId);
         update.setStatus(SUB_DRAFT);
         update.setWithdrawTime(now);
         eduSubmissionMapper.updateEduSubmission(update);
         // 撤回后待办恢复为草稿态，仍在待批列表中移除
-        eduSubmissionMapper.syncParticipantStatus(task.getTaskId(), sub.getUserId(), SUB_DRAFT, "0");
+        syncStatus(task.getTaskId(), sub.getUserId(), team, SUB_DRAFT, "0");
         return selectById(submissionId);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public EduSubmission lateApply(Long submissionId, String reason)
     {
         EduSubmission sub = mustSubmission(submissionId);
+        teams.lockTask(sub.getTaskId());
+        sub = currentSubmission(submissionId);
         checkSelf(sub);
         EduTask task = mustTask(sub.getTaskId());
-        return applyLate(task, sub, reason);
+        EduTaskTeamService.Team team = requireTeam(task, currentUserId(), true);
+        if (Integer.valueOf(1).equals(sub.getSubjectType())
+                && (team == null || !Long.valueOf(team.id()).equals(sub.getGroupId())))
+        {
+            throw new ServiceException("提交不属于当前队伍");
+        }
+        return applyLate(task, sub, reason, team);
     }
 
     @Override
@@ -285,12 +324,16 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
     public EduSubmission lateApplyForTask(Long taskId, String reason)
     {
         Long userId = currentUserId();
+        teams.lockTask(taskId);
         EduTask task = mustTask(taskId);
         checkParticipant(taskId, userId);
-        return applyLate(task, eduSubmissionMapper.selectByTaskAndUser(taskId, userId), reason);
+        EduTaskTeamService.Team team = requireTeam(task, userId, true);
+        EduSubmission existing = submissionFor(taskId, userId, team);
+        rejectLegacyWrite(taskId, team);
+        return applyLate(task, existing, reason, team);
     }
 
-    private EduSubmission applyLate(EduTask task, EduSubmission sub, String reason)
+    private EduSubmission applyLate(EduTask task, EduSubmission sub, String reason, EduTaskTeamService.Team team)
     {
         if (!Integer.valueOf(2).equals(task.getDeadlinePolicy())
                 || !(Integer.valueOf(TASK_RUNNING).equals(task.getStatus()) || Integer.valueOf(TASK_EXPIRED).equals(task.getStatus())))
@@ -314,16 +357,14 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
             Long userId = currentUserId();
             sub = new EduSubmission();
             sub.setTaskId(task.getTaskId());
-            sub.setSubjectType(0);
-            sub.setUserId(userId);
-            sub.setGroupId(eduTaskMapper.selectTaskGroupId(task.getTaskId(), userId));
+            setSubject(sub, userId, team);
             sub.setStatus(SUB_OVERDUE);
             sub.setVersion(0);
             sub.setIsOverdue("1");
             sub.setLateApplyStatus(LATE_PENDING);
             sub.setLateReason(reason.trim());
             eduSubmissionMapper.insertEduSubmission(sub);
-            eduSubmissionMapper.syncParticipantStatus(task.getTaskId(), userId, SUB_OVERDUE, "1");
+            syncStatus(task.getTaskId(), userId, team, SUB_OVERDUE, "1");
             return selectById(sub.getSubmissionId());
         }
         if (!Integer.valueOf(SUB_DRAFT).equals(sub.getStatus()) && !Integer.valueOf(SUB_OVERDUE).equals(sub.getStatus())
@@ -353,11 +394,13 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public EduSubmission lateApprove(Long submissionId, boolean approve, Date deadline, String remark)
     {
         EduSubmission sub = mustSubmission(submissionId);
         requireReviewAccess(sub.getTaskId());
+        teams.lockTask(sub.getTaskId());
+        sub = currentSubmission(submissionId);
         if (sub.getLateApplyStatus() == null || sub.getLateApplyStatus() != LATE_PENDING)
         {
             throw new ServiceException("该提交没有待审批的补交申请");
@@ -391,6 +434,9 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
             }
         }
         eduSubmissionMapper.updateEduSubmission(update);
+        if (Integer.valueOf(1).equals(sub.getSubjectType()))
+            eduSubmissionMapper.syncGroupStatus(sub.getTaskId(), sub.getGroupId(), update.getStatus(), "1");
+        else eduSubmissionMapper.syncParticipantStatus(sub.getTaskId(), sub.getUserId(), update.getStatus(), "1");
         return selectById(submissionId);
     }
 
@@ -413,6 +459,58 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
     public List<EduSubmissionFile> files(Long submissionId, Integer version)
     {
         return eduSubmissionMapper.selectFiles(submissionId, version);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> receipt(Long taskId)
+    {
+        EduSubmission submission = my(taskId);
+        Long submissionId = submission.getSubmissionId();
+        if (submissionId == null) throw new ServiceException("暂无正式提交回执");
+        Map<String, Object> snapshot = eduSubmissionMapper.selectLatestReceipt(submissionId);
+        if (snapshot == null) throw new ServiceException("暂无正式提交回执");
+        int version = ((Number) snapshot.get("version")).intValue();
+        List<?> files;
+        try
+        {
+            var parsed = JSON.parseArray((String) snapshot.get("fileSnapshot"));
+            files = parsed == null ? legacyReceiptFiles(submissionId, version)
+                    : parsed.stream().filter(Map.class::isInstance).map(entry -> {
+                        var file = (Map<?, ?>) entry;
+                        return receiptFile((String) file.get("fileName"), (String) file.get("sha256"));
+                    }).toList();
+        }
+        catch (JSONException ex) { files = legacyReceiptFiles(submissionId, version); }
+        var result = new LinkedHashMap<String, Object>();
+        result.put("submissionId", submissionId);
+        result.put("taskId", taskId);
+        result.put("version", version);
+        result.put("submittedAt", snapshot.get("submittedAt"));
+        result.put("currentStatus", submission.getStatus());
+        result.put("files", files);
+        return result;
+    }
+
+    private List<?> legacyReceiptFiles(long submissionId, int version)
+    {
+        return eduSubmissionMapper.selectFiles(submissionId, version).stream()
+                .map(file -> receiptFile(file.getFileName(), null)).toList();
+    }
+
+    private Map<String, Object> receiptFile(String name, String hash)
+    {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("fileName", name);
+        result.put("sha256", hash);
+        result.put("hashStatus", hash == null ? "unavailable" : "recorded");
+        return result;
+    }
+
+    private void notifyReceipt(long taskId, long submissionId, int version, long userId, EduTaskTeamService.Team team)
+    {
+        var participants = team == null ? List.of(userId) : eduSubmissionMapper.groupParticipants(taskId, team.id());
+        if (!participants.isEmpty()) eduSubmissionMapper.insertReceiptNotices(taskId, submissionId, version, participants);
     }
 
     // ---------- 内部 ----------
@@ -514,7 +612,8 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         {
             return false;
         }
-        return task.getDeadline() == null || !now.after(task.getDeadline());
+        return (task.getDeadline() == null || !now.after(task.getDeadline()))
+                && eduSubmissionMapper.countReviewForVersion(sub.getSubmissionId(), sub.getVersion()) == 0;
     }
 
     private boolean sameContent(EduSubmission exist, String content, List<EduSubmissionFile> files)
@@ -590,20 +689,71 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
     private void writeVersion(Long submissionId, int version, String content,
             List<EduSubmissionFile> files, Long operatorId)
     {
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < files.size(); i++)
+        List<Map<String, Object>> snapshot = new ArrayList<>();
+        for (EduSubmissionFile file : files)
         {
-            EduSubmissionFile f = files.get(i);
-            if (i > 0)
-            {
-                sb.append(",");
-            }
-            sb.append("{\"fileId\":\"").append(f.getFileId() == null ? "" : f.getFileId())
-              .append("\",\"fileName\":\"").append(f.getFileName() == null ? "" : f.getFileName())
-              .append("\"}");
+            Map<String, Object> entry = receiptFile(file.getFileName(), attachmentHash(file.getFileId()));
+            entry.put("fileId", file.getFileId());
+            snapshot.add(entry);
         }
-        sb.append("]");
-        eduSubmissionMapper.insertVersion(submissionId, version, content, sb.toString(), operatorId);
+        eduSubmissionMapper.insertVersion(submissionId, version, content, JSON.toJSONString(snapshot), operatorId);
+    }
+
+    private String attachmentHash(String fileId)
+    {
+        try
+        {
+            Path file = FileUtils.resolveStoredUpload(fileId);
+            if (file == null || Files.size(file) > 100L * 1024 * 1024) return null;
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            try (var input = new DigestInputStream(Files.newInputStream(file), sha256))
+            {
+                input.transferTo(java.io.OutputStream.nullOutputStream());
+            }
+            return HexFormat.of().formatHex(sha256.digest());
+        }
+        catch (IOException ex) { return null; }
+        catch (NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
+    }
+
+    private boolean groupTask(EduTask task)
+    {
+        return task.getFinishMode() != null && task.getFinishMode() != 0;
+    }
+
+    private EduTaskTeamService.Team requireTeam(EduTask task, long userId, boolean submit)
+    {
+        if (!groupTask(task)) return null;
+        EduTaskTeamService.Team team = teams.forStudent(task, userId);
+        if (team == null || !team.confirmed()) throw new ServiceException("请先完成组队");
+        if (submit && team.leaderId() != userId && !teams.anyMemberSubmit(task.getTaskId())) throw new ServiceException("只有组长可提交、撤回或申请补交");
+        return team;
+    }
+
+    private EduSubmission submissionFor(long taskId, long userId, EduTaskTeamService.Team team)
+    {
+        EduSubmission personal = eduSubmissionMapper.selectByTaskAndUser(taskId, userId);
+        if (personal != null && Integer.valueOf(0).equals(personal.getSubjectType())) return personal;
+        return team == null ? null : eduSubmissionMapper.selectByTaskAndGroup(taskId, team.id());
+    }
+
+    private void rejectLegacyWrite(long taskId, EduTaskTeamService.Team team)
+    {
+        if (team != null && teams.hasLegacyWork(taskId, team.id()))
+            throw new ServiceException("该队伍存在旧版个人作业，请联系教师处理后再提交小组作业");
+    }
+
+    private void setSubject(EduSubmission sub, long userId, EduTaskTeamService.Team team)
+    {
+        sub.setSubjectType(team == null ? 0 : 1);
+        sub.setUserId(team == null ? userId : team.leaderId());
+        if (team != null) sub.setGroupId(team.id());
+    }
+
+    private void syncStatus(long taskId, long userId, EduTaskTeamService.Team team, int status, String overdue)
+    {
+        if (team == null) eduSubmissionMapper.syncParticipantStatus(taskId, userId, status, overdue);
+        else eduSubmissionMapper.syncGroupStatus(taskId, team.id(), status, overdue);
     }
 
     /** 只有任务参与人（发布时快照的应参与学生）才能提交 */
@@ -648,10 +798,18 @@ public class EduSubmissionServiceImpl implements IEduSubmissionService
         return sub;
     }
 
+    private EduSubmission currentSubmission(Long submissionId)
+    {
+        EduSubmission latest = eduSubmissionMapper.selectCurrentSubmission(submissionId);
+        if (latest == null) throw new ServiceException("提交记录不存在");
+        return latest;
+    }
+
     /** 学生只能操作自己的提交；教师/管理员通过批阅接口处理，不走这里 */
     private void checkSelf(EduSubmission sub)
     {
         Long uid = currentUserId();
+        if (Integer.valueOf(1).equals(sub.getSubjectType())) return;
         if (sub.getUserId() != null && !sub.getUserId().equals(uid) && !isAdmin())
         {
             throw new ServiceException("只能操作自己的提交");

@@ -16,6 +16,8 @@ public interface IEduSubmissionService
     /** 我的提交（含退回原因、重交截止、是否可提交/可撤回） */
     EduSubmission my(Long taskId);
 
+    Map<String, Object> receipt(Long taskId);
+
     /** 教师侧提交列表（批阅待办） */
     List<EduSubmission> selectSubmissionList(EduSubmission query);
 

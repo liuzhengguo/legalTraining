@@ -2,6 +2,7 @@
   <div class="app-container">
     <el-button v-if="mode !== 'publish'" type="primary" @click="edit()">新增{{ isZone ? '展区' : '展项' }}</el-button>
     <el-button @click="load">刷新</el-button>
+    <ZoneRouteEditor v-if="isZone" ref="routeEditor" :zones="rows" @saved="load" />
     <el-table v-loading="loading" :data="rows" style="margin-top: 16px">
       <el-table-column v-if="isZone" prop="zoneCode" label="展区编号" />
       <el-table-column :prop="isZone ? 'zoneName' : 'title'" :label="isZone ? '展区名称' : '展项标题'" />
@@ -13,9 +14,11 @@
       </el-table-column>
       <el-table-column label="操作" min-width="220">
         <template slot-scope="{ row }">
+          <el-button v-if="mode === 'item'" v-hasPermi="['exh:item:list']" type="text" @click="$refs.caseReferences.show(row.itemId)">关联案例</el-button>
           <el-button v-if="mode !== 'publish'" type="text" @click="edit(row)">编辑</el-button>
           <el-button v-if="!isZone && row.sourceRec" type="text" @click="showSource(row)">来源成果</el-button>
           <el-button v-if="isZone && canSetLevel" type="text" @click="openLevel(row)">开放级别</el-button>
+          <el-button v-if="isZone" type="text" @click="$refs.routeEditor.showSpots(row)">热点</el-button>
           <template v-if="mode === 'publish'">
             <el-button type="text" @click="openLevel(row)">发布</el-button>
             <el-button type="text" @click="showSchedule(row)">发布计划</el-button>
@@ -25,11 +28,15 @@
         </template>
       </el-table-column>
     </el-table>
+    <CaseReferences ref="caseReferences" type="item" />
     <el-dialog :visible.sync="editing" :title="formId ? '编辑' : '新增'" width="620px">
       <el-form label-width="100px" @submit.native.prevent="save">
         <template v-if="isZone">
           <el-form-item label="展区编号"><el-input v-model.trim="form.zoneCode" maxlength="32" /></el-form-item>
           <el-form-item label="展区名称"><el-input v-model.trim="form.zoneName" maxlength="100" /></el-form-item>
+          <el-form-item label="全景图">
+            <el-input v-model.trim="form.panoramaUrl" placeholder="2:1 全景图 HTTPS 地址或平台素材路径" maxlength="500" />
+          </el-form-item>
           <el-form-item label="简介"><el-input v-model="form.intro" type="textarea" maxlength="2000" /></el-form-item>
           <el-form-item label="版式">
             <el-select v-model="form.layout">
@@ -102,10 +109,13 @@
   </div>
 </template>
 <script>
+import CaseReferences from '@/components/CaseReferences.vue'
 import request from '@/utils/request'
+import ZoneRouteEditor from './ZoneRouteEditor.vue'
 
 export default {
   name: 'ExhibitManagement',
+  components: { CaseReferences,  ZoneRouteEditor },
   props: { mode: { type: String, required: true } },
   data() {
     return { rows: [], zones: [], versions: [], loading: false, saving: false, editing: false, levelOpen: false,
@@ -159,8 +169,8 @@ export default {
       } finally { this.saving = false }
     },
     save() {
-      const { zoneCode, zoneName, intro, cover, layout, routeNo, zoneId, title, summary, content, version } = this.form
-      const data = this.isZone ? { zoneCode, zoneName, intro, cover, layout, routeNo } : { zoneId, title, cover, summary, content }
+      const { zoneCode, zoneName, intro, cover, panoramaUrl, layout, routeNo, zoneId, title, summary, content, version } = this.form
+      const data = this.isZone ? { zoneCode, zoneName, intro, cover, panoramaUrl, layout, routeNo } : { zoneId, title, cover, summary, content }
       return this.perform({ url: this.endpoint + (this.formId ? '/' + this.formId : ''),
         method: this.formId ? 'put' : 'post', params: this.formId && !this.isZone ? { version } : {}, data }, '已保存')
     },

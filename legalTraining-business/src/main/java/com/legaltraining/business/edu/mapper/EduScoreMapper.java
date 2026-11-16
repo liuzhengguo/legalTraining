@@ -15,11 +15,13 @@ public interface EduScoreMapper
 
     EduScore selectByTaskAndUser(@Param("taskId") Long taskId, @Param("userId") Long userId);
 
-    List<EduScore> selectScoreList(EduScore query);
+    List<EduScore> selectScoreList(@Param("query") EduScore query, @Param("teacherId") Long teacherId);
 
     int insertScore(EduScore score);
 
     int updateScore(EduScore score);
+
+    int publishScore(EduScore score);
 
     int deleteByTask(Long taskId);
 

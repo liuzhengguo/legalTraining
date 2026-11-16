@@ -75,6 +75,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <include refid="selectEduTaskVo"/>
         <where>
             t.del_flag = '0'
+            <if test="params.teacherScope != null">and c.teacher_id=#{params.teacherScope} and c.del_flag='0'</if>
             <if test="courseId != null">and t.course_id = #{courseId}</if>
             <if test="status != null">and t.status = #{status}</if>
             <if test="title != null and title != ''">
@@ -220,7 +221,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         set p.group_id = (
             select m.group_id from edu_group_member m
             join edu_group g on g.group_id = m.group_id
-            where g.task_id = p.task_id and m.user_id = p.user_id
+            where m.user_id = p.user_id and m.confirm_status=1 and (g.status=1 or (g.group_type=0 and g.status=0))
+              and (g.task_id = p.task_id or (g.task_id is null and g.group_type=0 and exists (
+                select 1 from edu_task t join edu_course co on co.course_id=t.course_id
+                join edu_class cl on cl.term_id=co.term_id where t.task_id=p.task_id and cl.class_id=g.class_id)))
+            order by (g.task_id is not null) desc,g.group_id
             limit 1
         )
         where p.task_id = #{taskId}
@@ -269,7 +274,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         left join sys_user u on u.user_id = p.user_id
         left join edu_user_profile pr on pr.user_id = p.user_id
         left join edu_group g on g.group_id = p.group_id
-        left join edu_submission s on s.task_id = p.task_id and s.user_id = p.user_id
+        left join edu_submission s on s.submission_id = (
+            select candidate.submission_id from edu_submission candidate where candidate.task_id=p.task_id
+            and ((candidate.subject_type=0 and candidate.user_id=p.user_id)
+                 or (candidate.subject_type=1 and candidate.group_id=p.group_id))
+            order by candidate.subject_type desc,candidate.submission_id limit 1
+        )
         where p.task_id = #{taskId}
         order by pr.student_no, p.user_id
     </select>

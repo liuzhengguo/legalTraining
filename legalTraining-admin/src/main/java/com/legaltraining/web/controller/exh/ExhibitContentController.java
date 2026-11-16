@@ -45,8 +45,8 @@ public class ExhibitContentController extends BaseController
         this.jdbc = jdbc;
     }
 
-    public record RouteOrder(@NotNull Long zoneId, @NotNull Integer routeNo) {}
-    public record SpotForm(@Size(max = 100) String spotName,
+    public record RouteOrder(@NotNull Long zoneId, @NotNull @jakarta.validation.constraints.PositiveOrZero Integer routeNo) {}
+    public record SpotForm(@NotBlank @Size(max = 100) String spotName,
             @NotNull @DecimalMin("0.0") @DecimalMax("1.0") BigDecimal posX,
             @NotNull @DecimalMin("0.0") @DecimalMax("1.0") BigDecimal posY,
             @Size(max = 255) String icon,
@@ -65,12 +65,15 @@ public class ExhibitContentController extends BaseController
     @PutMapping("/exh/zone/sort")
     @PreAuthorize("@ss.hasPermi('exh:zone:list')")
     @Transactional
-    public AjaxResult sortZones(@RequestBody @NotEmpty List<RouteOrder> orders)
+    public AjaxResult sortZones(@RequestBody @NotEmpty List<@Valid RouteOrder> orders)
     {
-        for (RouteOrder order : orders)
+        if (orders.stream().map(RouteOrder::zoneId).distinct().count() != orders.size()
+                || orders.stream().map(RouteOrder::routeNo).distinct().count() != orders.size())
+            throw new ServiceException("动线中的展区和顺序不能重复");
+        for (RouteOrder order : orders.stream().sorted(java.util.Comparator.comparing(RouteOrder::zoneId)).toList())
         {
-            jdbc.update("update exh_zone set route_no=?, update_time=now() where zone_id=? and del_flag='0'",
-                    order.routeNo(), order.zoneId());
+            if (jdbc.update("update exh_zone set route_no=?, update_time=now() where zone_id=? and del_flag='0'",
+                    order.routeNo(), order.zoneId()) == 0) throw new ServiceException("展区不存在");
         }
         return success(jdbc.queryForList("select zone_id as zoneId,route_no as routeNo from exh_zone "
                 + "where del_flag='0' order by route_no, zone_id"));
@@ -87,9 +90,10 @@ public class ExhibitContentController extends BaseController
     @PutMapping("/exh/zone/{zoneId}/spots")
     @PreAuthorize("@ss.hasPermi('exh:zone:list')")
     @Transactional
-    public AjaxResult saveSpots(@PathVariable long zoneId, @RequestBody @NotEmpty List<@Valid SpotForm> forms)
+    public AjaxResult saveSpots(@PathVariable long zoneId, @RequestBody @jakarta.validation.constraints.Size(max = 100) List<@Valid SpotForm> forms)
     {
-        zone(zoneId);
+        if (jdbc.queryForList("select zone_id from exh_zone where zone_id=? and del_flag='0' for update",
+                Long.class, zoneId).isEmpty()) throw new ServiceException("展区不存在");
         for (SpotForm form : forms)
         {
             boolean exists = "zone".equals(form.targetType())
@@ -108,6 +112,15 @@ public class ExhibitContentController extends BaseController
         }
         jdbc.update("update exh_zone set update_time=now() where zone_id=?", zoneId);
         return success(spotsOf(zoneId));
+    }
+
+    @GetMapping("/exh/zone/spot-targets")
+    @PreAuthorize("@ss.hasPermi('exh:zone:list')")
+    public AjaxResult spotTargets()
+    {
+        return success(jdbc.queryForList("""
+                select item_id as itemId,title from exh_item where del_flag='0' order by title,item_id
+                """));
     }
 
     // ------------------------------------------------------------------ 展项详情 / 编辑锁

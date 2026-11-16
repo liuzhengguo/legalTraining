@@ -28,6 +28,9 @@ import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
 import com.legaltraining.common.config.LegalTrainingConfig;
 import com.legaltraining.common.exception.ServiceException;
+import com.legaltraining.web.controller.openapi.CaseLibrary;
+import com.legaltraining.common.annotation.RateLimiter;
+import com.legaltraining.common.enums.LimitType;
 
 @RestController
 @RequestMapping("/edu/learning")
@@ -57,12 +60,38 @@ public class StudentLearningController extends BaseController
     private final JdbcTemplate jdbc;
     private final IEduTaskService tasks;
     private final IEduSubmissionService submissions;
+    private final CaseLibrary caseLibrary;
 
-    public StudentLearningController(JdbcTemplate jdbc, IEduTaskService tasks, IEduSubmissionService submissions)
+    public StudentLearningController(JdbcTemplate jdbc, IEduTaskService tasks, IEduSubmissionService submissions, CaseLibrary caseLibrary)
     {
         this.jdbc = jdbc;
         this.tasks = tasks;
         this.submissions = submissions;
+        this.caseLibrary = caseLibrary;
+    }
+
+    @GetMapping("/{type:courses|tasks}/{id}/cases")
+    @RateLimiter(time = 60, count = 120, limitType = LimitType.IP)
+    public AjaxResult references(@PathVariable String type, @PathVariable long id)
+    {
+        return success(caseLibrary.availableReferences(caseReferences(type, id)));
+    }
+
+    @GetMapping("/{type:courses|tasks}/{id}/cases/{caseId}")
+    @RateLimiter(time = 60, count = 120, limitType = LimitType.IP)
+    public AjaxResult referencedCase(@PathVariable String type, @PathVariable long id, @PathVariable String caseId)
+    {
+        return success(caseLibrary.referencedCase(caseReferences(type, id), caseId));
+    }
+
+    private List<Map<String, Object>> caseReferences(String type, long id)
+    {
+        long user = getUserId();
+        boolean course = type.equals("courses");
+        var access = course ? jdbc.queryForList(COURSES + " and c.course_id = ?", user, user, id)
+                : jdbc.queryForList(TASKS + " and t.task_id = ?", user, id);
+        if (access.isEmpty()) throw new ServiceException("内容不存在或当前账号无权访问");
+        return caseLibrary.references(course ? "course" : "task", id);
     }
 
     @GetMapping("/courses")

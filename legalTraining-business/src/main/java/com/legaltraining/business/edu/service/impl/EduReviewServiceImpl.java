@@ -63,6 +63,9 @@ public class EduReviewServiceImpl implements IEduReviewService
     @Autowired
     private EduScoreMapper eduScoreMapper;
 
+    @Autowired
+    private EduTaskTeamService teams;
+
     @Override
     public List<EduReview> selectPendingList(EduReview query)
     {
@@ -92,18 +95,14 @@ public class EduReviewServiceImpl implements IEduReviewService
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public EduReview save(EduReview review)
     {
         if (review.getSubmissionId() == null)
         {
             throw new ServiceException("提交记录不能为空");
         }
-        EduSubmission sub = eduSubmissionMapper.selectEduSubmissionById(review.getSubmissionId());
-        if (sub == null)
-        {
-            throw new ServiceException("提交记录不存在");
-        }
+        EduSubmission sub = lockSubmitted(review.getSubmissionId(), false);
         if (sub.getStatus() != null && sub.getStatus() == SUB_RETURNED)
         {
             throw new ServiceException("该提交已退回，等待学生重交后再批阅");
@@ -174,15 +173,14 @@ public class EduReviewServiceImpl implements IEduReviewService
             update.setSubmissionId(sub.getSubmissionId());
             update.setStatus(SUB_REVIEWED);
             eduSubmissionMapper.updateEduSubmission(update);
-            eduSubmissionMapper.syncParticipantStatus(sub.getTaskId(), sub.getUserId(), SUB_REVIEWED,
-                    sub.getIsOverdue());
+            syncReviewStatus(sub, SUB_REVIEWED);
             upsertPendingScore(task, sub, total);
         }
         return selectById(target.getReviewId());
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public EduReview publish(Long reviewId)
     {
         EduReview review = eduReviewMapper.selectEduReviewById(reviewId);
@@ -198,10 +196,10 @@ public class EduReviewServiceImpl implements IEduReviewService
         {
             throw new ServiceException("请先录入得分再发布");
         }
-        EduSubmission sub = eduSubmissionMapper.selectEduSubmissionById(review.getSubmissionId());
-        if (sub == null)
+        EduSubmission sub = lockSubmitted(review.getSubmissionId(), false);
+        if (!java.util.Objects.equals(review.getSubmissionVersion(), sub.getVersion()))
         {
-            throw new ServiceException("提交记录不存在");
+            throw new ServiceException("作业已有新版本，请重新批阅");
         }
         EduTask task = eduTaskMapper.selectEduTaskById(sub.getTaskId());
         if (task == null)
@@ -219,21 +217,16 @@ public class EduReviewServiceImpl implements IEduReviewService
         subUpdate.setSubmissionId(sub.getSubmissionId());
         subUpdate.setStatus(SUB_REVIEWED);
         eduSubmissionMapper.updateEduSubmission(subUpdate);
-        eduSubmissionMapper.syncParticipantStatus(sub.getTaskId(), sub.getUserId(), SUB_REVIEWED,
-                sub.getIsOverdue());
+        syncReviewStatus(sub, SUB_REVIEWED);
         upsertPendingScore(task, sub, review.getTotalScore());
         return selectById(reviewId);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public EduReview returnBack(Long submissionId, String reason, Date deadline)
     {
-        EduSubmission sub = eduSubmissionMapper.selectEduSubmissionById(submissionId);
-        if (sub == null)
-        {
-            throw new ServiceException("提交记录不存在");
-        }
+        EduSubmission sub = lockSubmitted(submissionId, true);
         EduTask task = eduTaskMapper.selectEduTaskById(sub.getTaskId());
         if (task == null)
         {
@@ -274,13 +267,12 @@ public class EduReviewServiceImpl implements IEduReviewService
         update.setStatus(SUB_RETURNED);
         update.setResubmitDeadline(deadline);
         eduSubmissionMapper.updateEduSubmission(update);
-        eduSubmissionMapper.syncParticipantStatus(sub.getTaskId(), sub.getUserId(), SUB_RETURNED,
-                sub.getIsOverdue());
+        syncReviewStatus(sub, SUB_RETURNED);
         return selectById(review.getReviewId());
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> batch(List<Map<String, Object>> items)
     {
         if (StringUtils.isEmpty(items))
@@ -411,15 +403,42 @@ public class EduReviewServiceImpl implements IEduReviewService
     }
 
     /** 生成/更新"待发布"成绩记录，真正的发布由成绩模块统一执行 */
+    private EduSubmission lockSubmitted(Long submissionId, boolean allowReturned)
+    {
+        EduSubmission initial = eduSubmissionMapper.selectEduSubmissionById(submissionId);
+        if (initial == null) throw new ServiceException("提交记录不存在");
+        teams.lockTask(initial.getTaskId());
+        EduSubmission latest = eduSubmissionMapper.selectCurrentSubmission(submissionId);
+        if (latest == null || !(Integer.valueOf(2).equals(latest.getStatus())
+                || allowReturned && Integer.valueOf(SUB_RETURNED).equals(latest.getStatus())))
+            throw new ServiceException("作业已撤回、退回或批阅，请刷新");
+        return latest;
+    }
+
+    private void syncReviewStatus(EduSubmission sub, int status)
+    {
+        if (Integer.valueOf(1).equals(sub.getSubjectType()))
+            eduSubmissionMapper.syncGroupStatus(sub.getTaskId(), sub.getGroupId(), status, sub.getIsOverdue());
+        else eduSubmissionMapper.syncParticipantStatus(sub.getTaskId(), sub.getUserId(), status, sub.getIsOverdue());
+    }
+
     private void upsertPendingScore(EduTask task, EduSubmission sub, BigDecimal total)
     {
-        EduScore exist = eduScoreMapper.selectByTaskAndUser(sub.getTaskId(), sub.getUserId());
+        List<Long> recipients = Integer.valueOf(1).equals(sub.getSubjectType())
+                ? eduSubmissionMapper.groupParticipants(sub.getTaskId(), sub.getGroupId())
+                : List.of(sub.getUserId());
+        for (Long userId : recipients) upsertPendingScore(task, sub, total, userId);
+    }
+
+    private void upsertPendingScore(EduTask task, EduSubmission sub, BigDecimal total, Long userId)
+    {
+        EduScore exist = eduScoreMapper.selectByTaskAndUser(sub.getTaskId(), userId);
         BigDecimal adjust = exist == null || exist.getGroupAdjust() == null
                 ? BigDecimal.ZERO : exist.getGroupAdjust();
         EduScore score = new EduScore();
         score.setTaskId(sub.getTaskId());
         score.setCourseId(task == null ? null : task.getCourseId());
-        score.setUserId(sub.getUserId());
+        score.setUserId(userId);
         score.setGroupId(sub.getGroupId());
         score.setTaskScore(total);
         score.setGroupAdjust(adjust);

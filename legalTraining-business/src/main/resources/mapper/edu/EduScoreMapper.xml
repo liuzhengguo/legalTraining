@@ -49,18 +49,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         limit 1
     </select>
 
-    <select id="selectScoreList" parameterType="EduScore" resultMap="EduScoreResult">
+    <select id="selectScoreList" resultMap="EduScoreResult">
         <include refid="selectEduScoreVo"/>
         <where>
-            <if test="taskId != null">and sc.task_id = #{taskId}</if>
-            <if test="courseId != null">and sc.course_id = #{courseId}</if>
-            <if test="userId != null">and sc.user_id = #{userId}</if>
-            <if test="status != null">and sc.status = #{status}</if>
-            <if test="studentNo != null and studentNo != ''">
-                and p.student_no like concat('%', #{studentNo}, '%')
+            <if test="teacherId != null">
+                and c.teacher_id = #{teacherId} and c.del_flag = '0'
             </if>
-            <if test="studentName != null and studentName != ''">
-                and u.nick_name like concat('%', #{studentName}, '%')
+            <if test="query.taskId != null">and sc.task_id = #{query.taskId}</if>
+            <if test="query.courseId != null">and sc.course_id = #{query.courseId}</if>
+            <if test="query.userId != null">and sc.user_id = #{query.userId}</if>
+            <if test="query.status != null">and sc.status = #{query.status}</if>
+            <if test="query.studentNo != null and query.studentNo != ''">
+                and p.student_no like concat('%', #{query.studentNo}, '%')
+            </if>
+            <if test="query.studentName != null and query.studentName != ''">
+                and u.nick_name like concat('%', #{query.studentName}, '%')
             </if>
         </where>
         order by p.student_no, sc.score_id
@@ -85,6 +88,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             update_time = sysdate()
         </set>
         where score_id = #{scoreId}
+    </update>
+
+    <update id="publishScore" parameterType="EduScore">
+        update edu_score set status = 1, publish_time = #{publishTime},
+            level_code = #{levelCode}, update_time = sysdate()
+        where score_id = #{scoreId} and status = 0
     </update>
 
     <delete id="deleteByTask" parameterType="Long">

@@ -45,6 +45,7 @@ public class EduTermServiceImpl implements IEduTermService
     @Override
     public int insertEduTerm(EduTerm eduTerm)
     {
+        checkDates(eduTerm);
         if (eduTermMapper.countBySchoolYearAndTermNo(eduTerm.getSchoolYear(), eduTerm.getTermNo(), null) > 0)
         {
             throw new ServiceException("该学年学期已存在，请勿重复创建");
@@ -69,6 +70,7 @@ public class EduTermServiceImpl implements IEduTermService
     @Override
     public int updateEduTerm(EduTerm eduTerm)
     {
+        checkDates(eduTerm);
         EduTerm exist = eduTermMapper.selectEduTermById(eduTerm.getTermId());
         if (exist == null)
         {
@@ -117,6 +119,23 @@ public class EduTermServiceImpl implements IEduTermService
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> switchCurrent(Long termId)
     {
+        Map<String, Object> result = previewSwitch(termId);
+        eduTermMapper.clearCurrentTerm(termId);
+        EduTerm update = new EduTerm();
+        update.setTermId(termId);
+        update.setIsCurrent("1");
+        update.setStatus(1);
+        update.setUpdateBy(currentUsername());
+        eduTermMapper.updateEduTerm(update);
+        int inProgress = (Integer) result.get("inProgressTasks");
+        String message = "已切换到「" + result.get("termName") + "」";
+        result.put("message", inProgress > 0 ? message + "，上一学期仍有 " + inProgress + " 个任务进行中，将继续在原学期下运行" : message);
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> previewSwitch(Long termId)
+    {
         EduTerm target = eduTermMapper.selectEduTermById(termId);
         if (target == null)
         {
@@ -130,15 +149,6 @@ public class EduTermServiceImpl implements IEduTermService
         EduTerm old = eduTermMapper.selectCurrentTerm();
         int inProgress = (old != null) ? eduTermMapper.countInProgressTasks(old.getTermId()) : 0;
 
-        eduTermMapper.clearCurrentTerm(termId);
-
-        EduTerm update = new EduTerm();
-        update.setTermId(termId);
-        update.setIsCurrent("1");
-        update.setStatus(1);
-        update.setUpdateBy(currentUsername());
-        eduTermMapper.updateEduTerm(update);
-
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("termId", termId);
         result.put("termName", target.getTermName());
@@ -146,9 +156,15 @@ public class EduTermServiceImpl implements IEduTermService
         result.put("oldTermName", old == null ? null : old.getTermName());
         result.put("inProgressTasks", inProgress);
         result.put("message", inProgress > 0
-                ? "已切换到「" + target.getTermName() + "」，上一学期仍有 " + inProgress + " 个任务进行中，将继续在原学期下运行"
-                : "已切换到「" + target.getTermName() + "」");
+                ? "当前学期仍有 " + inProgress + " 个任务进行中，切换后将继续在原学期运行。确认切换到「" + target.getTermName() + "」？"
+                : "确认切换到「" + target.getTermName() + "」？");
         return result;
+    }
+
+    private void checkDates(EduTerm term)
+    {
+        if (term.getStartDate() != null && term.getEndDate() != null && term.getEndDate().before(term.getStartDate()))
+            throw new ServiceException("学期结束日期不能早于开始日期");
     }
 
     @Override

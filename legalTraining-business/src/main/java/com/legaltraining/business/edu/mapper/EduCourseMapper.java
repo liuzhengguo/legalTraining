@@ -48,5 +48,7 @@ public interface EduCourseMapper
     /** 复制课程时的资源清单 */
     int copyResourceLinks(@Param("sourceId") Long sourceId, @Param("targetId") Long targetId);
 
+    int copyCaseReferences(@Param("type") String type, @Param("sourceId") Long sourceId, @Param("targetId") Long targetId);
+
     List<String> selectOfflineResourceTitles(Long courseId);
 }

@@ -14,11 +14,63 @@
       <el-table-column prop="finalScore" label="得分" />
       <el-table-column label="操作">
         <template slot-scope="{ row }">
+          <el-button v-if="row.status === 1 || row.status === 2" v-hasPermi="['edu:score:adjust']"
+                     type="text" @click="openCorrection(row)">更正成绩</el-button>
           <el-button v-if="row.submissionId && !recommendations.some(item => item.submissionId === row.submissionId)"
                      v-hasPermi="['edu:score:recommend']" type="text" @click="prepare(row)">推荐成果</el-button>
         </template>
       </el-table-column>
     </el-table>
+    <section v-if="taskId && $auth.hasPermi('edu:score:adjust')">
+      <h3>成绩异议</h3>
+      <el-table :data="appeals" empty-text="暂无成绩异议">
+        <el-table-column prop="studentName" label="学生" />
+        <el-table-column prop="finalScore" label="当前得分" />
+        <el-table-column prop="reason" label="异议说明" />
+        <el-table-column prop="reply" label="处理意见" />
+        <el-table-column label="状态">
+          <template slot-scope="{ row }">{{ ['待处理', '维持成绩', '已更正'][row.status] }}</template>
+        </el-table-column>
+        <el-table-column label="操作">
+          <template slot-scope="{ row }">
+            <el-button v-if="row.status === 0" type="text" @click="openAppeal(row)">处理</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+    <el-dialog :visible.sync="appealOpen" title="处理成绩异议" width="550px">
+      <el-form label-width="90px" @submit.native.prevent="resolveAppeal">
+        <el-form-item label="异议说明">{{ appeal.reason }}</el-form-item>
+        <el-form-item label="处理结果">
+          <el-radio-group v-model="appeal.correct">
+            <el-radio :label="false">维持成绩</el-radio>
+            <el-radio :label="true">更正成绩</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="appeal.correct" label="更正分数">
+          <el-input-number v-model="appeal.newScore" :min="0" :precision="2" />
+        </el-form-item>
+        <el-form-item label="处理意见">
+          <el-input v-model.trim="appeal.reply" type="textarea" maxlength="500" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" native-type="submit" :loading="saving" :disabled="!appeal.reply || (appeal.correct && appeal.newScore == null)">保存处理结果</el-button>
+        </el-form-item>
+      </el-form>
+    </el-dialog>
+    <el-dialog :visible.sync="correctionOpen" title="更正成绩" width="550px">
+      <el-form label-width="90px" @submit.native.prevent="correctScore">
+        <el-form-item label="更正分数">
+          <el-input-number v-model="correction.newScore" :min="0" :max="correction.totalScoreFull || 100" :precision="2" />
+        </el-form-item>
+        <el-form-item label="更正原因">
+          <el-input v-model.trim="correction.reason" type="textarea" maxlength="500" />
+        </el-form-item>
+        <el-form-item>
+          <el-button native-type="submit" type="primary" :loading="saving" :disabled="!correction.reason || correction.newScore == null">保存更正</el-button>
+        </el-form-item>
+      </el-form>
+    </el-dialog>
     <h3>成果推荐记录</h3>
     <el-table :data="recommendations">
       <el-table-column prop="title" label="成果" />
@@ -27,9 +79,14 @@
         <template slot-scope="{ row }">{{ statuses[row.status] }}</template>
       </el-table-column>
       <el-table-column prop="opinion" label="审核意见" />
+      <el-table-column label="送达状态">
+        <template slot-scope="{ row }">
+          <span v-if="row.status === 1">{{ ['待送达', '已送达', '送达失败'][row.pushStatus] }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="展项状态">
         <template slot-scope="{ row }">
-          <span v-if="row.exhibitId">{{ exhibitStatuses[row.exhibitStatus] || '未知' }}</span>
+          <span v-if="row.exhibitId">{{ exhibitStatuses[row.exhibitStatus] || '已关联展项' }}</span>
         </template>
       </el-table-column>
       <el-table-column label="授权操作">
@@ -84,7 +141,8 @@ export default {
   data() {
     return {
       tasks: [], taskId: null, scores: [], recommendations: [], zones: [], form: {}, open: false, saving: false,
-      authorizationOpen: false, authorization: {},
+      authorizationOpen: false, authorization: {}, appeals: [], appealOpen: false, appeal: {},
+      correctionOpen: false, correction: {},
       statuses: ['待授权', '待审核', '审核通过', '审核驳回', '已撤回或拒绝', '已生成展项'],
       exhibitStatuses: ['草稿', '待发布', '已发布', '已下架', '发布失败']
     }
@@ -136,15 +194,49 @@ export default {
         this.recommendations = (await request({ url: '/edu/rec/list' })).data
       }
     },
+    openCorrection(row) {
+      this.correction = { ...row, newScore: row.finalScore, reason: '' }
+      this.correctionOpen = true
+    },
+    async correctScore() {
+      const { scoreId, newScore, reason } = this.correction
+      if (this.saving || newScore == null || !reason) return
+      this.saving = true
+      try {
+        await request({ url: '/edu/score/' + scoreId + '/adjust', method: 'put', params: { newScore, reason } })
+        this.correctionOpen = false
+        this.$modal.msgSuccess('成绩已更正，已发送站内通知')
+        await this.loadScores()
+      } finally { this.saving = false }
+    },
+    openAppeal(row) {
+      this.appeal = { ...row, correct: false, newScore: row.finalScore, reply: '' }
+      this.appealOpen = true
+    },
+    async resolveAppeal() {
+      if (this.saving || !this.appeal.reply) return
+      const { appealId, reply, correct, newScore } = this.appeal
+      this.saving = true
+      try {
+        await request({ url: '/edu/score/appeals/' + appealId, method: 'put',
+          data: { reply, newScore: correct ? newScore : null } })
+        this.appealOpen = false
+        this.$modal.msgSuccess('已处理成绩异议')
+        await this.loadScores()
+      } finally { this.saving = false }
+    },
     async loadScores() {
       const taskId = this.taskId
-      const [scores, submissions] = await Promise.all([
+      this.appeals = []
+      const [scores, submissions, appeals] = await Promise.all([
         request({ url: '/edu/score/list', params: { taskId, pageNum: 1, pageSize: 100 } }),
-        request({ url: '/edu/submission/list', params: { taskId, status: 3 } })
+        request({ url: '/edu/submission/list', params: { taskId, status: 3 } }),
+        this.$auth.hasPermi('edu:score:adjust') && request({ url: '/edu/score/appeals', params: { taskId } })
       ])
       if (taskId !== this.taskId) return
+      this.appeals = appeals ? appeals.data : []
       const byUser = new Map(submissions.data.map(item => [item.userId, item.submissionId]))
-      this.scores = scores.rows.filter(row => byUser.has(row.userId)).map(row => ({ ...row, submissionId: byUser.get(row.userId) }))
+      this.scores = scores.rows.map(row => ({ ...row, submissionId: byUser.get(row.userId) }))
     },
     async prepare(row) {
       this.zones = (await request({ url: '/edu/rec/options' })).data

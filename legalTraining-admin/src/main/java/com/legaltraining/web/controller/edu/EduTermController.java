@@ -112,6 +112,13 @@ public class EduTermController extends BaseController
         return success(eduTermService.switchCurrent(termId));
     }
 
+    @PreAuthorize("@ss.hasPermi('edu:term:switch')")
+    @GetMapping("/{termId}/switch-check")
+    public AjaxResult switchCheck(@PathVariable Long termId)
+    {
+        return success(eduTermService.previewSwitch(termId));
+    }
+
     /**
      * 归档前置检查
      */

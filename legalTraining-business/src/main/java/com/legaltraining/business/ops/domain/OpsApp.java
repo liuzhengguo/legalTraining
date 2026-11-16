@@ -73,6 +73,8 @@ public class OpsApp extends BaseEntity
         this.appCode = appCode;
     }
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @com.alibaba.fastjson2.annotation.JSONField(serialize = false, deserialize = false)
     public String getAppSecret()
     {
         return appSecret;

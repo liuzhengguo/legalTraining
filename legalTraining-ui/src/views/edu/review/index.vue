@@ -9,6 +9,11 @@
       <el-button type="primary" native-type="submit" :disabled="!taskId">刷新</el-button>
       <el-button v-hasPermi="['edu:score:publish']" :disabled="!taskId" @click="publishScores">发布任务成绩</el-button>
     </el-form>
+    <el-form v-if="teamSettings" inline>
+      <el-form-item label="组内任一成员可提交">
+        <el-switch :value="teamSettings.anyMemberSubmit" :disabled="saving || !$auth.hasPermi('edu:task:edit')" @change="changeTeamSettings" />
+      </el-form-item>
+    </el-form>
     <el-table v-loading="loading" :data="rows" row-key="submissionId" empty-text="请选择任务，或该任务暂无待处理作业">
       <el-table-column prop="studentNo" label="学号" />
       <el-table-column prop="studentName" label="学生" />
@@ -23,6 +28,19 @@
       </el-table-column>
     </el-table>
 
+    <section v-if="legacyRows.length && $auth.hasPermi('edu:task:edit')">
+      <h3>旧版个人作业</h3>
+      <el-table :data="legacyRows">
+        <el-table-column prop="studentNo" label="学号" />
+        <el-table-column prop="studentName" label="学生" />
+        <el-table-column prop="version" label="版本" />
+        <el-table-column label="操作">
+          <template slot-scope="{ row }">
+            <el-button type="text" :disabled="saving" @click="migrateLegacy(row)">迁移为小组作业</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
     <el-dialog v-if="current" :visible.sync="visible" :title="current.studentName || '作业详情'" width="650px">
       <el-form label-width="100px">
         <template v-if="current.lateApplyStatus === 1">
@@ -30,6 +48,11 @@
           <el-form-item label="补交截止"><el-date-picker v-model="deadline" type="datetime" value-format="yyyy-MM-dd HH:mm:ss" /></el-form-item>
         </template>
         <template v-else>
+          <el-form-item v-if="teamMembers.length" label="小组贡献">
+            <ul><li v-for="member in teamMembers" :key="member.userId">
+              {{ member.name }}：{{ member.contribution || '未填写' }}
+            </li></ul>
+          </el-form-item>
           <el-form-item label="作业说明"><p class="submission-text">{{ current.content }}</p></el-form-item>
           <el-form-item v-if="current.files && current.files.length" label="附件">
             <ul>
@@ -80,7 +103,7 @@ export default {
   data() {
     return {
       taskId: null, tasks: [], rows: [], current: null, taskDetail: {}, items: [],
-      loading: false, saving: false, visible: false, returning: false, deadline: null,
+      legacyRows: [], teamMembers: [], teamSettings: null, loading: false, saving: false, visible: false, returning: false, deadline: null,
       reason: '', reviewComment: '', totalScore: 0
     }
   },
@@ -89,13 +112,42 @@ export default {
     this.tasks = result.rows
   },
   methods: {
+    async migrateLegacy(row) {
+      const taskId = this.taskId
+      try { await this.$modal.confirm('将该学生的旧版作业作为小组共享作业？原作业编号、附件和版本保留。') } catch { return }
+      if (taskId !== this.taskId) return
+      this.saving = true
+      try {
+        await request({ url: '/edu/submission/team/' + taskId + '/legacy/' + row.submissionId, method: 'put' })
+        this.$modal.msgSuccess('已迁移为小组作业')
+        await this.load()
+      } finally { this.saving = false }
+    },
+    async changeTeamSettings(anyMemberSubmit) {
+      const taskId = this.taskId
+      this.saving = true
+      try {
+        await request({ url: '/edu/submission/team/' + taskId + '/settings', method: 'put', params: { anyMemberSubmit } })
+        if (taskId === this.taskId && this.teamSettings) this.teamSettings.anyMemberSubmit = anyMemberSubmit
+      } finally { this.saving = false }
+    },
     async load() {
       if (!this.taskId) return
       const taskId = this.taskId
       this.loading = true
       this.rows = []
+      this.legacyRows = []
+      this.teamSettings = null
       try {
-        const result = await request({ url: '/edu/submission/list', params: { taskId } })
+        const task = this.tasks.find(entry => entry.taskId === taskId)
+        const [result, settings] = await Promise.all([
+          request({ url: '/edu/submission/list', params: { taskId } }),
+          task && task.finishMode && request({ url: '/edu/submission/team/' + taskId + '/settings' })
+        ])
+        if (settings && this.taskId === taskId) {
+          this.teamSettings = settings.data
+          this.legacyRows = result.data.filter(row => row.subjectType === 0 && row.status !== 3)
+        }
         if (this.taskId === taskId) this.rows = result.data.filter(row => row.status === 2 || row.lateApplyStatus === 1)
       } finally {
         if (this.taskId === taskId) this.loading = false
@@ -109,6 +161,7 @@ export default {
       ])
       if (this.taskId !== taskId) return
       this.current = submission.data
+      this.teamMembers = submission.teamMembers || []
       this.taskDetail = task.data
       this.items = (task.data.scoreItems || []).map(item => ({ ...item, score: 0 }))
       this.totalScore = 0

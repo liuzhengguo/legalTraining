@@ -30,8 +30,8 @@ INSERT INTO sys_dict_type (dict_name, dict_type, status, create_by, create_time,
 ('用户类别',     'biz_user_category',   '0', 'admin', sysdate(), NULL),
 ('分享渠道',     'biz_channel',         '0', 'admin', sysdate(), NULL),
 ('通知事件',     'biz_notice_event',    '0', 'admin', sysdate(), '11.2 NT-01~13'),
-('下架原因',     'biz_offline_reason',  '0', 'admin', sysdate(), 'MG-05-02')
-ON DUPLICATE KEY UPDATE dict_name = VALUES(dict_name);
+('下架原因',     'biz_offline_reason',  '0', 'admin', sysdate(), 'MG-05-02') AS new_dict
+ON DUPLICATE KEY UPDATE dict_name = new_dict.dict_name;
 
 DELETE FROM sys_dict_data WHERE dict_type LIKE 'biz_%';
 INSERT INTO sys_dict_data (dict_sort, dict_label, dict_value, dict_type, css_class, list_class, is_default, status, create_by, create_time) VALUES
@@ -140,8 +140,8 @@ INSERT INTO sys_role (role_id, role_name, role_key, role_sort, data_scope, menu_
 (103, '教师',       'teacher',     3, '3', 1, 1, '0', '0', 'admin', sysdate(), 'E2 本班/本课程范围'),
 (104, '学生',       'student',     4, '5', 1, 1, '0', '0', 'admin', sysdate(), 'E3 仅本人'),
 (105, '内容编辑',   'editor',      5, '5', 1, 1, '0', '0', 'admin', sysdate(), 'E4 内容生产'),
-(106, '审核员',     'auditor',     6, '1', 1, 1, '0', '0', 'admin', sysdate(), 'E4 仅审核，不可编辑；与推荐人互斥')
-ON DUPLICATE KEY UPDATE role_name = VALUES(role_name), remark = VALUES(remark);
+(106, '审核员',     'auditor',     6, '1', 1, 1, '0', '0', 'admin', sysdate(), 'E4 仅审核，不可编辑；与推荐人互斥') AS new_role
+ON DUPLICATE KEY UPDATE role_name = new_role.role_name, remark = new_role.remark;
 
 -- 说明：超级管理员沿用 RuoYi 内置 role_id=1（role_key=admin），无需另建；
 --       框架对 user_id=1 直接返回全量菜单，因此不给该角色配 sys_role_menu。
@@ -151,7 +151,8 @@ ON DUPLICATE KEY UPDATE role_name = VALUES(role_name), remark = VALUES(remark);
 -- ============================================================================
 -- 3. 等级制区间（校级统一口径，教师不可自定）
 -- ============================================================================
-DELETE FROM edu_grade_level;
+-- 等级制区间为种子数据，全量重建保证幂等（WHERE 1=1 仅为通过 IDE 安全检查）
+DELETE FROM edu_grade_level WHERE 1=1;
 INSERT INTO edu_grade_level (level_code, level_name, min_score, max_score, sort_no, is_default) VALUES
 ('A', '优秀',   90.00, 100.00, 1, '1'),
 ('B', '良好',   80.00,  89.99, 2, '1'),
@@ -175,8 +176,8 @@ INSERT INTO ops_notice_template (event_code, event_name, title_tpl, content_tpl,
 ('NT-10', '审核结果回写',     '成果审核{result}：{achievementName}', '审核意见：{opinion}',                                     'inner', '0', '0'),
 ('NT-11', '定时发布失败',     '定时发布失败：{itemTitle}',     '失败原因：{failReason}，已重试 {retry} 次。',                    'inner', '0', '0'),
 ('NT-12', '设备离线超24小时', '设备离线：{deviceCode}',        '设备 {deviceCode}（{siteNo}）已离线 {hours} 小时。',             'inner', '1', '0'),
-('NT-13', '待审积压提醒',     '成果审核积压',                  '待审区已积压 {count} 条，最长等待 {days} 个工作日。',            'inner', '1', '0')
-ON DUPLICATE KEY UPDATE title_tpl = VALUES(title_tpl), content_tpl = VALUES(content_tpl);
+('NT-13', '待审积压提醒',     '成果审核积压',                  '待审区已积压 {count} 条，最长等待 {days} 个工作日。',            'inner', '1', '0') AS new_tpl
+ON DUPLICATE KEY UPDATE title_tpl = new_tpl.title_tpl, content_tpl = new_tpl.content_tpl;
 
 -- ============================================================================
 -- 5. 菜单骨架（E1 / E2 / E4 三个角色菜单组 + 门户）
@@ -211,6 +212,7 @@ INSERT INTO sys_menu VALUES (2021, '批阅进度', 2019, 2, 'review', 'edu/monit
 INSERT INTO sys_menu VALUES (2022, '数据导出', 2010, 4, 'export', NULL, NULL, '', 1, 0, 'M', '0', '0', '', 'download', 'admin', sysdate(), '', NULL, NULL);
 INSERT INTO sys_menu VALUES (2023, '成绩汇总', 2022, 1, 'score', 'edu/score/summary', NULL, '', 1, 0, 'C', '0', '0', 'edu:score:summary', 'excel', 'admin', sysdate(), '', NULL, 'MG-04-01');
 INSERT INTO sys_menu VALUES (2024, '展厅监管', 2010, 5, 'exh', NULL, NULL, '', 1, 0, 'M', '0', '0', '', 'eye-open', 'admin', sysdate(), '', NULL, NULL);
+INSERT IGNORE INTO sys_menu VALUES (2028, '备份恢复', 2010, 6, 'backup', 'ops/backup/index', NULL, '', 1, 0, 'C', '0', '0', 'ops:backup:admin', 'database', 'admin', sysdate(), '', NULL, 'MG-06-03');
 INSERT INTO sys_menu VALUES (2025, '展区开放配置', 2024, 1, 'zone-level', 'exh/zone/level', NULL, '', 1, 0, 'C', '0', '0', 'exh:zone:level', 'tree-table', 'admin', sysdate(), '', NULL, 'MG-05-01');
 INSERT INTO sys_menu VALUES (2026, '紧急下架审批', 2024, 2, 'offline', 'exh/offline/audit', NULL, '', 1, 0, 'C', '0', '0', 'exh:offline:audit', 'checkbox', 'admin', sysdate(), '', NULL, 'MG-05-02');
 
@@ -353,5 +355,5 @@ INSERT INTO sys_config (config_name, config_key, config_value, config_type, crea
 ('展厅短链前缀',         'biz.exhibit.shareBase',    'https://exh.legaltraining.cn/s/', 'N', 'admin', sysdate(), 'EM-05-01 分享短链域名前缀'),
 ('展厅内容版本号',       'biz.exhibit.contentVersion','',      'N', 'admin', sysdate(), 'OP-02-03 留空则按最后更新时间推导'),
 ('外部案例库地址',       'biz.openapi.caseUrl',       '',      'N', 'admin', sysdate(), 'OP-02-08 留空即降级为空结果'),
-('AI 咨询地址',          'biz.ai.consultUrl',         '',      'N', 'admin', sysdate(), 'OP-02-09 留空即降级提示未配置')
-ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), remark = VALUES(remark);
+('AI 咨询地址',          'biz.ai.consultUrl',         '',      'N', 'admin', sysdate(), 'OP-02-09 留空即降级提示未配置') AS new_cfg
+ON DUPLICATE KEY UPDATE config_value = new_cfg.config_value, remark = new_cfg.remark;

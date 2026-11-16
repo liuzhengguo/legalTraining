@@ -2,6 +2,10 @@ package com.legaltraining.web.controller.edu;
 
 import java.math.BigDecimal;
 import java.util.List;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +32,40 @@ public class EduScoreController extends BaseController
 {
     @Autowired
     private IEduScoreService eduScoreService;
+
+    public record AppealForm(@NotBlank @Size(max = 500) String reason) {}
+    public record AppealDecision(@NotBlank @Size(max = 500) String reply, BigDecimal newScore) {}
+
+    @PreAuthorize("@ss.hasPermi('edu:score:query')")
+    @GetMapping("/appeals/my")
+    public AjaxResult myAppeals()
+    {
+        return success(eduScoreService.appeals(true, null));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:score:query')")
+    @PostMapping("/{scoreId}/appeals")
+    public AjaxResult requestAppeal(@PathVariable Long scoreId, @Valid @RequestBody AppealForm form)
+    {
+        eduScoreService.submitAppeal(scoreId, form.reason());
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:score:adjust')")
+    @GetMapping("/appeals")
+    public AjaxResult appeals(@RequestParam Long taskId)
+    {
+        return success(eduScoreService.appeals(false, taskId));
+    }
+
+    @Log(title = "成绩异议处理", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('edu:score:adjust')")
+    @PutMapping("/appeals/{appealId}")
+    public AjaxResult resolveAppeal(@PathVariable Long appealId, @Valid @RequestBody AppealDecision decision)
+    {
+        eduScoreService.resolveAppeal(appealId, decision.reply(), decision.newScore());
+        return success();
+    }
 
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbc;

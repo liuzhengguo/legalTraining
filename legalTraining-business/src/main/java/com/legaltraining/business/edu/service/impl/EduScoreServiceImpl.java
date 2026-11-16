@@ -47,10 +47,14 @@ public class EduScoreServiceImpl implements IEduScoreService
     @Autowired
     private EduTaskMapper eduTaskMapper;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     @Override
     public List<EduScore> selectScoreList(EduScore query)
     {
-        return eduScoreMapper.selectScoreList(query);
+        Long teacherId = businessScope.hasAnyRole("registrar") ? null : currentUserId();
+        return eduScoreMapper.selectScoreList(query, teacherId);
     }
 
     @Override
@@ -73,7 +77,7 @@ public class EduScoreServiceImpl implements IEduScoreService
         EduScore query = new EduScore();
         query.setTaskId(taskId);
         query.setStatus(SCORE_PENDING);
-        List<EduScore> pending = eduScoreMapper.selectScoreList(query);
+        List<EduScore> pending = eduScoreMapper.selectScoreList(query, null);
         if (StringUtils.isEmpty(pending))
         {
             throw new ServiceException("没有待发布的成绩；请先完成批阅并发布批阅结果");
@@ -91,7 +95,11 @@ public class EduScoreServiceImpl implements IEduScoreService
             {
                 update.setLevelCode(eduScoreMapper.selectLevelCodeByScore(s.getFinalScore()));
             }
-            eduScoreMapper.updateScore(update);
+            if (eduScoreMapper.publishScore(update) == 0)
+            {
+                continue;
+            }
+            notifyStudent("NT-06", s, "成绩已发布", task.getTitle());
 
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("userId", s.getUserId());
@@ -113,12 +121,13 @@ public class EduScoreServiceImpl implements IEduScoreService
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> adjust(Long scoreId, BigDecimal newScore, String reason)
     {
-        EduScore exist = eduScoreMapper.selectById(scoreId);
-        if (exist == null)
+        EduScore exist = lockScore(scoreId);
+        businessScope.requireCourseAccess(exist.getCourseId());
+        if (exist.getStatus() == SCORE_PENDING)
         {
-            throw new ServiceException("成绩记录不存在");
+            throw new ServiceException("请先发布成绩再更正");
         }
-        if (StringUtils.isEmpty(reason))
+        if (StringUtils.isBlank(reason))
         {
             throw new ServiceException("成绩更正必须填写原因");
         }
@@ -146,6 +155,7 @@ public class EduScoreServiceImpl implements IEduScoreService
         }
         eduScoreMapper.updateScore(update);
         eduScoreMapper.insertAdjust(scoreId, old, newScore, reason, currentUserId());
+        notifyStudent("NT-07", exist, "成绩已更正", exist.getTaskTitle() + "：" + reason);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("scoreId", scoreId);
@@ -160,6 +170,15 @@ public class EduScoreServiceImpl implements IEduScoreService
     @Override
     public List<Map<String, Object>> adjustLog(Long scoreId)
     {
+        EduScore score = eduScoreMapper.selectById(scoreId);
+        if (score == null)
+        {
+            throw new ServiceException("成绩记录不存在");
+        }
+        if (!currentUserId().equals(score.getUserId()) || score.getStatus() == SCORE_PENDING)
+        {
+            businessScope.requireCourseAccess(score.getCourseId());
+        }
         return eduScoreMapper.selectAdjustLog(scoreId);
     }
 
@@ -171,10 +190,11 @@ public class EduScoreServiceImpl implements IEduScoreService
         {
             throw new ServiceException("课程不能为空");
         }
+        businessScope.requireCourseAccess(courseId);
         // 以已发布成绩为口径，逐学生求平均作为课程总评
         EduScore query = new EduScore();
         query.setCourseId(courseId);
-        List<EduScore> all = eduScoreMapper.selectScoreList(query);
+        List<EduScore> all = eduScoreMapper.selectScoreList(query, null);
         Map<Long, List<EduScore>> byUser = new LinkedHashMap<>();
         for (EduScore s : all)
         {
@@ -228,7 +248,110 @@ public class EduScoreServiceImpl implements IEduScoreService
     @Override
     public List<Map<String, Object>> courseScore(Long courseId, Long userId)
     {
+        if (!businessScope.canAccessCourse(courseId))
+        {
+            userId = currentUserId();
+        }
         return eduScoreMapper.selectCourseScore(courseId, userId);
+    }
+
+    @Override
+    public List<Map<String, Object>> appeals(boolean mine, Long taskId)
+    {
+        String sql = """
+                select a.appeal_id as appealId, a.score_id as scoreId, a.reason, a.status,
+                       a.reply, a.create_time as createTime, a.handle_time as handleTime,
+                       s.final_score as finalScore, s.level_code as levelCode,
+                       t.title as taskTitle, u.nick_name as studentName
+                from edu_score_appeal a join edu_score s on s.score_id = a.score_id
+                join edu_task t on t.task_id = s.task_id
+                join edu_course c on c.course_id = s.course_id
+                join sys_user u on u.user_id = s.user_id
+                where s.status in (1, 2)
+                """;
+        List<Object> args = new ArrayList<>();
+        if (mine)
+        {
+            sql += " and s.user_id = ?";
+            args.add(currentUserId());
+        }
+        else if (!businessScope.hasAnyRole("registrar"))
+        {
+            sql += " and c.teacher_id = ? and c.del_flag = '0'";
+            args.add(currentUserId());
+        }
+        if (taskId != null)
+        {
+            sql += " and s.task_id = ?";
+            args.add(taskId);
+        }
+        return jdbc.queryForList(sql + " order by a.appeal_id desc", args.toArray());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void submitAppeal(Long scoreId, String reason)
+    {
+        EduScore score = lockScore(scoreId);
+        if (!currentUserId().equals(score.getUserId()) || score.getStatus() == SCORE_PENDING)
+        {
+            throw new ServiceException("只能对自己的已发布成绩提出异议");
+        }
+        if (jdbc.queryForObject("select count(*) from edu_score_appeal where score_id = ?",
+                Integer.class, scoreId) > 0)
+        {
+            throw new ServiceException("该成绩已有异议申请，可在成绩页查看处理结果");
+        }
+        jdbc.update("insert into edu_score_appeal(score_id, reason) values (?, ?)", scoreId, reason.trim());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void resolveAppeal(Long appealId, String reply, BigDecimal newScore)
+    {
+        List<Long> scoreIds = jdbc.queryForList("select score_id from edu_score_appeal where appeal_id = ?",
+                Long.class, appealId);
+        if (scoreIds.isEmpty())
+        {
+            throw new ServiceException("成绩异议不存在");
+        }
+        EduScore score = lockScore(scoreIds.get(0));
+        businessScope.requireCourseAccess(score.getCourseId());
+        if (score.getStatus() == SCORE_PENDING)
+        {
+            throw new ServiceException("成绩尚未发布");
+        }
+        int updated = jdbc.update("""
+                update edu_score_appeal set status = ?, reply = ?, handler_id = ?, handle_time = now()
+                where appeal_id = ? and status = 0
+                """, newScore == null ? 1 : 2, reply.trim(), currentUserId(), appealId);
+        if (updated == 0)
+        {
+            throw new ServiceException("该异议已处理，请刷新查看");
+        }
+        if (newScore != null)
+        {
+            adjust(score.getScoreId(), newScore, reply.trim());
+        }
+        notifyStudent("SCORE-APPEAL", score, "成绩异议已处理", score.getTaskTitle() + "：" + reply.trim());
+    }
+
+    private EduScore lockScore(Long scoreId)
+    {
+        if (jdbc.queryForList("select score_id from edu_score where score_id = ? for update",
+                Long.class, scoreId).isEmpty())
+        {
+            throw new ServiceException("成绩记录不存在");
+        }
+        return eduScoreMapper.selectById(scoreId);
+    }
+
+    private void notifyStudent(String event, EduScore score, String title, String content)
+    {
+        jdbc.update("""
+                insert into ops_notification(event_code, receiver_id, title, content, biz_type, biz_id, send_time)
+                values (?, ?, ?, ?, 'task', ?, now())
+                """, event, score.getUserId(), title, content, score.getTaskId());
     }
 
     private Long currentUserId()

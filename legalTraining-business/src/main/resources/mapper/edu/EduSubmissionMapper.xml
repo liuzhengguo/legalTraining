@@ -65,10 +65,47 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where s.submission_id = #{submissionId}
     </select>
 
+    <select id="selectLatestReceipt" resultType="java.util.LinkedHashMap">
+        select version,date_format(submit_time,'%Y-%m-%d %H:%i:%s') as submittedAt,file_snapshot as fileSnapshot
+        from edu_submission_version where submission_id=#{submissionId} order by version desc limit 1
+    </select>
+
+    <insert id="insertReceiptNotices">
+        insert into ops_notification(event_code,receiver_id,title,content,biz_type,biz_id,send_time) values
+        <foreach collection="receivers" item="receiver" separator=",">
+            ('NT-03',#{receiver},'作业提交成功',concat('提交编号 ',#{submissionId},' · 版本 ',#{version}),'task',#{taskId},now())
+        </foreach>
+    </insert>
+
+    <select id="selectCurrentSubmission" resultMap="EduSubmissionResult" flushCache="true" useCache="false">
+        <include refid="selectEduSubmissionVo"/>
+        where s.submission_id = #{submissionId}
+    </select>
+
     <select id="selectByTaskAndUser" resultMap="EduSubmissionResult">
         <include refid="selectEduSubmissionVo"/>
         where s.task_id = #{taskId} and s.user_id = #{userId}
         limit 1
+    </select>
+
+    <select id="countReviewForVersion" resultType="int">
+        select count(*) from edu_review where submission_id=#{submissionId} and submission_version=#{version}
+    </select>
+
+    <select id="selectByTaskAndGroup" resultMap="EduSubmissionResult">
+        <include refid="selectEduSubmissionVo"/>
+        where s.task_id=#{taskId} and s.group_id=#{groupId} and s.subject_type=1
+        order by s.submission_id limit 1
+    </select>
+
+    <update id="syncGroupStatus">
+        update edu_task_participant set submit_status=#{submitStatus}, overdue_flag=#{overdueFlag}
+        where task_id=#{taskId} and group_id=#{groupId}
+    </update>
+
+    <select id="groupParticipants" resultType="java.lang.Long">
+        select user_id from edu_task_participant where task_id=#{taskId} and group_id=#{groupId}
+        order by user_id
     </select>
 
     <select id="selectSubmissionList" parameterType="EduSubmission" resultMap="EduSubmissionResult">

@@ -246,6 +246,7 @@ public class EduCourseServiceImpl implements IEduCourseService
         List<Long> classIds = sameTerm ? eduCourseMapper.selectClassIds(courseId) : java.util.Collections.emptyList();
         saveClassIds(target.getCourseId(), classIds);
         saveExhibits(target.getCourseId(), eduCourseMapper.selectExhibits(courseId));
+        eduCourseMapper.copyCaseReferences("course", courseId, target.getCourseId());
 
         int resourceCopied = eduCourseMapper.copyResourceLinks(courseId, target.getCourseId());
         int taskCopied = copyTaskTemplates(courseId, target.getCourseId());
@@ -287,6 +288,7 @@ public class EduCourseServiceImpl implements IEduCourseService
             if (!scores.isEmpty()) eduTaskMapper.batchInsertScoreItems(task.getTaskId(), scores);
             if (!resources.isEmpty()) eduTaskMapper.batchInsertTaskResource(task.getTaskId(), resources);
             if (!exhibits.isEmpty()) eduTaskMapper.batchInsertTaskExhibit(task.getTaskId(), exhibits);
+            eduCourseMapper.copyCaseReferences("task", sourceTaskId, task.getTaskId());
             copiedResources.addAll(resources);
         }
         copiedResources.forEach(eduResourceMapper::recountRef);

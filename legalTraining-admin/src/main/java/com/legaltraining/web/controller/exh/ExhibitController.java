@@ -11,6 +11,10 @@ import com.legaltraining.common.annotation.Anonymous;
 import com.legaltraining.common.core.domain.AjaxResult;
 import com.legaltraining.common.exception.ServiceException;
 import com.legaltraining.common.utils.SecurityUtils;
+import com.legaltraining.web.controller.ops.RemoteRecommendationInbox;
+import com.legaltraining.web.controller.openapi.CaseLibrary;
+import com.legaltraining.common.annotation.RateLimiter;
+import com.legaltraining.common.enums.LimitType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -29,18 +33,23 @@ public class ExhibitController
 {
     private static final ZoneId GALLERY_ZONE = ZoneId.of("Asia/Shanghai");
     private static final String ZONE_FIELDS = "zone_id as zoneId, zone_code as zoneCode, zone_name as zoneName, "
-            + "intro, cover, layout, route_no as routeNo, open_level as openLevel, status";
+            + "intro, cover, panorama_url as panoramaUrl, layout, route_no as routeNo, open_level as openLevel, status";
     private static final String ITEM_FIELDS = "item_id as itemId, zone_id as zoneId, title, cover, summary, "
             + "content, author_name as authorName, view_level as viewLevel, status, version";
     private final JdbcTemplate jdbc;
+    private final RemoteRecommendationInbox inbox;
+    private final CaseLibrary caseLibrary;
 
-    public ExhibitController(JdbcTemplate jdbc)
+    public ExhibitController(JdbcTemplate jdbc, RemoteRecommendationInbox inbox, CaseLibrary caseLibrary)
     {
         this.jdbc = jdbc;
+        this.inbox = inbox;
+        this.caseLibrary = caseLibrary;
     }
 
     public record ZoneForm(@NotBlank @Size(max = 32) String zoneCode, @NotBlank @Size(max = 100) String zoneName,
             @Size(max = 2000) String intro, @Size(max = 500) String cover,
+            @Size(max = 500) String panoramaUrl,
             @NotNull @Pattern(regexp = "grid|flow|timeline") String layout, int routeNo) {}
 
     public record ItemForm(@NotNull Long zoneId, @NotBlank @Size(max = 200) String title,
@@ -59,9 +68,9 @@ public class ExhibitController
     @PreAuthorize("@ss.hasPermi('exh:zone:list')")
     public AjaxResult createZone(@Valid @RequestBody ZoneForm form)
     {
-        jdbc.update("insert into exh_zone(zone_code, zone_name, intro, cover, layout, route_no, create_by, create_time) "
-                + "values(?, ?, ?, ?, ?, ?, ?, now())", form.zoneCode(), form.zoneName(), form.intro(),
-                mediaUrl(form.cover()), form.layout(), form.routeNo(), SecurityUtils.getUsername());
+        jdbc.update("insert into exh_zone(zone_code, zone_name, intro, cover, panorama_url, layout, route_no, create_by, create_time) "
+                + "values(?, ?, ?, ?, ?, ?, ?, ?, now())", form.zoneCode(), form.zoneName(), form.intro(),
+                mediaUrl(form.cover()), mediaUrl(form.panoramaUrl()), form.layout(), form.routeNo(), SecurityUtils.getUsername());
         return AjaxResult.success();
     }
 
@@ -69,9 +78,9 @@ public class ExhibitController
     @PreAuthorize("@ss.hasPermi('exh:zone:list')")
     public AjaxResult editZone(@PathVariable long zoneId, @Valid @RequestBody ZoneForm form)
     {
-        requireUpdated(jdbc.update("update exh_zone set zone_code=?, zone_name=?, intro=?, cover=?, layout=?, "
+        requireUpdated(jdbc.update("update exh_zone set zone_code=?, zone_name=?, intro=?, cover=?, panorama_url=?, layout=?, "
                 + "route_no=?, update_time=now() where zone_id=? and del_flag='0'",
-                form.zoneCode(), form.zoneName(), form.intro(), mediaUrl(form.cover()), form.layout(), form.routeNo(), zoneId));
+                form.zoneCode(), form.zoneName(), form.intro(), mediaUrl(form.cover()), mediaUrl(form.panoramaUrl()), form.layout(), form.routeNo(), zoneId));
         return AjaxResult.success();
     }
 
@@ -217,6 +226,7 @@ public class ExhibitController
                 + "update_time=now() where item_id=? and status=2 and del_flag='0'", reason, itemId));
         cancelPending(itemId, "展项已下架");
         notifyAchievement(itemId, "成果展项已下架");
+        inbox.exhibitChanged(itemId, 3);
         return AjaxResult.success();
     }
 
@@ -226,6 +236,31 @@ public class ExhibitController
     {
         return noCache(AjaxResult.success(jdbc.queryForList("select " + ZONE_FIELDS
                 + " from exh_zone where status=1 and open_level=2 and del_flag='0' order by route_no, zone_id")));
+    }
+
+    @Anonymous
+    @GetMapping("/gallery/v1/zones/{zoneId}/spots")
+    public ResponseEntity<AjaxResult> gallerySpots(@PathVariable long zoneId)
+    {
+        return noCache(AjaxResult.success(jdbc.queryForList("""
+                select s.spot_id as spotId, s.spot_name as spotName, s.pos_x as posX, s.pos_y as posY, s.icon,
+                       s.target_type as targetType, s.target_id as targetId
+                from exh_zone_spot s join exh_zone z on z.zone_id=s.zone_id
+                where s.zone_id=? and z.status=1 and z.open_level=2 and z.del_flag='0'
+                and (
+                    (s.target_type='zone' and exists (
+                        select 1 from exh_zone target where target.zone_id=s.target_id
+                        and target.status=1 and target.open_level=2 and target.del_flag='0'))
+                    or (s.target_type='item' and exists (
+                        select 1 from exh_item i join exh_item_version v on v.item_id=i.item_id
+                        and v.version=(select max(p.version) from exh_item_version p
+                                       where p.item_id=i.item_id and p.edit_type in (1,2))
+                        join exh_zone target on target.zone_id=cast(json_unquote(json_extract(v.snapshot,'$.zoneId')) as unsigned)
+                        where i.item_id=s.target_id and i.status=2 and i.view_level=2 and i.del_flag='0'
+                        and target.status=1 and target.open_level=2 and target.del_flag='0'))
+                )
+                order by s.sort_no, s.spot_id
+                """, zoneId)));
     }
 
     @Anonymous
@@ -241,6 +276,7 @@ public class ExhibitController
         List<Map<String, Object>> cards = snapshots.stream().map(snapshot -> {
             Map<String, Object> card = JSON.parseObject(snapshot);
             card.remove("content");
+            card.remove("media");
             return card;
         }).toList();
         return noCache(AjaxResult.success(cards));
@@ -250,7 +286,9 @@ public class ExhibitController
     @GetMapping("/gallery/v1/items/{itemId}")
     public ResponseEntity<AjaxResult> galleryItem(@PathVariable long itemId)
     {
-        List<Map<String, Object>> rows = jdbc.queryForList("select i.status,i.view_level, "
+        List<Map<String, Object>> rows = jdbc.queryForList("select i.status,i.view_level,z.zone_id as publicZoneId, "
+                + "case when i.offline_reason like '%调整%' then 'adjusted' else 'offline' end as reasonType, "
+                + "case when z.status=1 and z.open_level=2 and z.del_flag='0' then 1 else 0 end as zonePublic, "
                 + "case when z.status=1 and z.open_level=2 and z.del_flag='0' then v.snapshot end as snapshot "
                 + "from exh_item i left join exh_item_version v on v.item_id=i.item_id "
                 + "and v.version=(select max(p.version) from exh_item_version p where p.item_id=i.item_id and p.edit_type in (1,2)) "
@@ -261,7 +299,13 @@ public class ExhibitController
         int status = ((Number) item.get("status")).intValue();
         if (status == 3 && ((Number) item.get("view_level")).intValue() == 2)
         {
-            return ResponseEntity.status(410).cacheControl(CacheControl.noStore()).build();
+            AjaxResult body = AjaxResult.error(410, "内容已下架");
+            body.put("reasonType", item.get("reasonType"));
+            if (((Number) item.get("zonePublic")).intValue() == 1)
+            {
+                body.put("zoneId", item.get("publicZoneId"));
+            }
+            return ResponseEntity.status(410).cacheControl(CacheControl.noStore()).body(body);
         }
         String snapshot = (String) item.get("snapshot");
         if (status != 2 || ((Number) item.get("view_level")).intValue() != 2 || snapshot == null)
@@ -269,6 +313,32 @@ public class ExhibitController
             return ResponseEntity.notFound().build();
         }
         return noCache(AjaxResult.success(JSON.parseObject(snapshot)));
+    }
+
+    @Anonymous
+    @GetMapping("/gallery/v1/items/{itemId}/cases")
+    @RateLimiter(time = 60, count = 120, limitType = LimitType.IP)
+    public ResponseEntity<AjaxResult> galleryCases(@PathVariable long itemId)
+    {
+        ResponseEntity<AjaxResult> item = galleryItem(itemId);
+        if (!item.getStatusCode().is2xxSuccessful()) return item;
+        return noCache(AjaxResult.success(caseLibrary.availableReferences(publishedCaseReferences(item))));
+    }
+
+    @Anonymous
+    @GetMapping("/gallery/v1/items/{itemId}/cases/{caseId}")
+    @RateLimiter(time = 60, count = 120, limitType = LimitType.IP)
+    public ResponseEntity<AjaxResult> galleryCase(@PathVariable long itemId, @PathVariable String caseId)
+    {
+        ResponseEntity<AjaxResult> item = galleryItem(itemId);
+        if (!item.getStatusCode().is2xxSuccessful()) return item;
+        return noCache(AjaxResult.success(caseLibrary.referencedCase(publishedCaseReferences(item), caseId)));
+    }
+
+    private List<?> publishedCaseReferences(ResponseEntity<AjaxResult> item)
+    {
+        var payload = (com.alibaba.fastjson2.JSONObject) item.getBody().get(AjaxResult.DATA_TAG);
+        return payload.get("caseReferences") instanceof List<?> cases ? cases : List.of();
     }
 
     private void publishSnapshot(long itemId, Map<String, Object> item, int level, Integer sourceVersion)
@@ -280,6 +350,7 @@ public class ExhibitController
     private void validatePublication(Map<String, Object> item, int level)
     {
         if (level != 1 && level != 2) throw new ServiceException("发布级别无效");
+        inbox.requirePublicationScope(((Number) item.get("itemId")).longValue(), level);
         List<Map<String, Object>> rights = jdbc.queryForList("select i.source_rec,r.status,r.scope_desc "
                 + "from exh_item i left join edu_recommendation r on r.rec_id=i.source_rec where i.item_id=?", item.get("itemId"));
         if (!rights.isEmpty() && rights.get(0).get("source_rec") != null)
@@ -309,6 +380,15 @@ public class ExhibitController
     {
         boolean newlyVisible = ((Number) item.get("status")).intValue() != 2;
         int next = ((Number) item.get("version")).intValue() + 1;
+        if (sourceVersion == null)
+        {
+            item.put("caseReferences", caseLibrary.references("item", itemId));
+            item.put("media", jdbc.queryForList("""
+                    select media_id as mediaId,media_type as type,url,cover,duration,sort_no as sortNo
+                    from exh_item_media where item_id=? and status='0' and transcode_status in (0,2)
+                    order by sort_no,media_id
+                    """, itemId));
+        }
         item.put("version", next);
         item.put("viewLevel", level);
         item.put("status", 2);
@@ -318,6 +398,7 @@ public class ExhibitController
         jdbc.update("update exh_item set status=2, view_level=?, version=?, publish_time=now(), "
                 + "offline_time=null, offline_reason=null, update_time=now() where item_id=?", level, next, itemId);
         if (newlyVisible) notifyAchievement(itemId, "成果展项已发布");
+        inbox.exhibitChanged(itemId, 2);
     }
 
     private void notifyAchievement(long itemId, String title)

@@ -2,13 +2,13 @@
 START TRANSACTION;
 
 UPDATE sys_dept SET dept_name = 'legalTraining'
-WHERE dept_id = 100 AND dept_name = '若依科技';
+WHERE dept_id = 100 AND dept_name = '武汉理工大学';
 
 UPDATE sys_dept SET leader = 'legalTraining'
 WHERE dept_id BETWEEN 100 AND 109 AND leader = '若依';
 
 UPDATE sys_user SET nick_name = 'legalTraining'
-WHERE user_id IN (1, 2) AND nick_name = '若依';
+WHERE user_id IN (1, 2) AND nick_name = '法学';
 
 DELETE rm FROM sys_role_menu rm
 JOIN sys_menu m ON rm.menu_id = m.menu_id

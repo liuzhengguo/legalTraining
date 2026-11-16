@@ -10,6 +10,7 @@
         </el-select>
       </el-form-item>
       <el-button @click="load">刷新</el-button>
+      <RemoteInbox v-if="$auth.hasPermiOr(['exh:audit:list', 'exh:item:list'])" />
     </el-form>
     <el-table :data="visibleRows" empty-text="没有符合条件的成果">
       <el-table-column prop="title" label="成果" />
@@ -47,8 +48,10 @@
   </div>
 </template>
 <script>
+import RemoteInbox from './RemoteInbox.vue'
 import request from '@/utils/request'
 export default {
+  components: { RemoteInbox },
   name: 'ExhibitAudit',
   props: { approvedOnly: Boolean },
   data() {

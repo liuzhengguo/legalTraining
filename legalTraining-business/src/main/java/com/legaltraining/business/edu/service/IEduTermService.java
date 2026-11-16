@@ -47,6 +47,8 @@ public interface IEduTermService
      */
     public Map<String, Object> switchCurrent(Long termId);
 
+    public Map<String, Object> previewSwitch(Long termId);
+
     /**
      * 归档前置检查，返回四项未完成事项统计（P10-N01）。
      */

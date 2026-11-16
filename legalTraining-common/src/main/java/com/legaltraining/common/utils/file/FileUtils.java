@@ -9,6 +9,9 @@ import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.io.FilenameUtils;
@@ -27,6 +30,22 @@ import com.legaltraining.common.utils.uuid.IdUtils;
 public class FileUtils
 {
     public static String FILENAME_PATTERN = "[a-zA-Z0-9_\\-\\|\\.\\u4e00-\\u9fa5]+";
+
+    public static Path resolveStoredUpload(String assetId) throws IOException
+    {
+        String prefix = "/profile/upload/";
+        if (assetId == null || !assetId.startsWith(prefix) || assetId.indexOf('\\') >= 0
+                || assetId.codePoints().anyMatch(Character::isISOControl)) return null;
+        try
+        {
+            Path root = Path.of(LegalTrainingConfig.getUploadPath()).toRealPath();
+            Path path = root.resolve(assetId.substring(prefix.length())).normalize();
+            if (!path.startsWith(root) || !Files.isRegularFile(path)) return null;
+            Path real = path.toRealPath();
+            return real.startsWith(root) ? real : null;
+        }
+        catch (InvalidPathException | java.nio.file.NoSuchFileException ex) { return null; }
+    }
 
     /**
      * 输出指定文件的byte数组

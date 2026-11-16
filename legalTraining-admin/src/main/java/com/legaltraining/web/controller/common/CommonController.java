@@ -33,6 +33,9 @@ public class CommonController
     @Autowired
     private ServerConfig serverConfig;
 
+    @Autowired
+    private com.legaltraining.web.controller.ops.MediaRecoveryJournal mediaJournal;
+
     private static final String FILE_DELIMITER = ",";
 
     /**
@@ -56,9 +59,9 @@ public class CommonController
             response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
             FileUtils.setAttachmentResponseHeader(response, realFileName);
             FileUtils.writeBytes(filePath, response.getOutputStream());
-            if (delete)
+            if (Boolean.TRUE.equals(delete))
             {
-                FileUtils.deleteFile(filePath);
+                mediaJournal.deleteProfileFile(java.nio.file.Path.of(filePath));
             }
         }
         catch (Exception e)
@@ -79,6 +82,7 @@ public class CommonController
             String filePath = LegalTrainingConfig.getUploadPath();
             // 上传并返回新文件名称
             String fileName = FileUploadUtils.upload(filePath, file);
+            mediaJournal.captureUpload(fileName);
             String url = serverConfig.getUrl() + fileName;
             AjaxResult ajax = AjaxResult.success();
             ajax.put("url", url);
@@ -111,6 +115,7 @@ public class CommonController
             {
                 // 上传并返回新文件名称
                 String fileName = FileUploadUtils.upload(filePath, file);
+                mediaJournal.captureUpload(fileName);
                 String url = serverConfig.getUrl() + fileName;
                 urls.add(url);
                 fileNames.add(fileName);

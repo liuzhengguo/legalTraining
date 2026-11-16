@@ -6,6 +6,7 @@ import java.util.Map;
 import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
 import com.legaltraining.common.exception.ServiceException;
+import com.legaltraining.web.controller.ops.RemoteRecommendationInbox;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -38,10 +39,12 @@ public class ExhibitOfflineController extends BaseController
             + "case when o.target_type='item' then (select title from exh_item i where i.item_id=o.target_id) "
             + "else (select zone_name from exh_zone z where z.zone_id=o.target_id) end as targetName";
     private final JdbcTemplate jdbc;
+    private final RemoteRecommendationInbox inbox;
 
-    public ExhibitOfflineController(JdbcTemplate jdbc)
+    public ExhibitOfflineController(JdbcTemplate jdbc, RemoteRecommendationInbox inbox)
     {
         this.jdbc = jdbc;
+        this.inbox = inbox;
     }
 
     public record ApplyForm(@NotBlank @Pattern(regexp = "item|zone") String targetType,
@@ -152,6 +155,7 @@ public class ExhibitOfflineController extends BaseController
             int changed = jdbc.update("update exh_item set status=3,offline_time=now(),offline_reason=?,update_time=now() "
                     + "where item_id=? and del_flag='0'", text, targetId);
             if (changed == 0) throw new ServiceException("展项不存在");
+            inbox.exhibitChanged(targetId, 3);
         }
         else
         {
@@ -165,8 +169,11 @@ public class ExhibitOfflineController extends BaseController
     {
         if ("item".equals(targetType))
         {
-            jdbc.update("update exh_item set status=2,offline_time=null,offline_reason=null,update_time=now() "
+            Integer level = jdbc.queryForObject("select view_level from exh_item where item_id=?", Integer.class, targetId);
+            inbox.requirePublicationScope(targetId, level);
+            int changed = jdbc.update("update exh_item set status=2,offline_time=null,offline_reason=null,update_time=now() "
                     + "where item_id=? and status=3 and del_flag='0'", targetId);
+            if (changed > 0) inbox.exhibitChanged(targetId, 2);
         }
         else
         {

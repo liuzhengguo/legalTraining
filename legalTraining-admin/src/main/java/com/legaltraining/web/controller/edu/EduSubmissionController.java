@@ -4,6 +4,11 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import com.alibaba.fastjson2.JSON;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +39,91 @@ public class EduSubmissionController extends BaseController
     @Autowired
     private IEduSubmissionService eduSubmissionService;
 
+    @Autowired
+    private com.legaltraining.business.edu.service.impl.EduTaskTeamService teams;
+
+    public record TeamText(@jakarta.validation.constraints.NotBlank
+            @jakarta.validation.constraints.Size(max = 64) String text) {}
+    public record Contribution(@jakarta.validation.constraints.Size(max = 500) String text) {}
+
+    @PreAuthorize("@ss.hasPermi('edu:review:list')")
+    @GetMapping("/team/{taskId}/settings")
+    public AjaxResult teamSettings(@PathVariable long taskId)
+    {
+        eduSubmissionService.requireReviewAccess(taskId);
+        return success(Map.of("anyMemberSubmit", teams.anyMemberSubmit(taskId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:task:edit')")
+    @PutMapping("/team/{taskId}/settings")
+    public AjaxResult changeTeamSettings(@PathVariable long taskId, @RequestParam boolean anyMemberSubmit)
+    {
+        eduSubmissionService.requireReviewAccess(taskId);
+        teams.setAnyMemberSubmit(taskId, anyMemberSubmit);
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:my')")
+    @GetMapping("/team/{taskId}/editors")
+    public AjaxResult editors(@PathVariable long taskId)
+    {
+        return success(teams.editors(taskId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:edit')")
+    @PostMapping("/team/{taskId}/editing")
+    public AjaxResult editing(@PathVariable long taskId, @RequestParam boolean editing)
+    {
+        return success(teams.editing(taskId, editing));
+    }
+
+    @Log(title = "旧版分组作业迁移", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('edu:task:edit')")
+    @PutMapping("/team/{taskId}/legacy/{submissionId}")
+    public AjaxResult migrateLegacy(@PathVariable long taskId, @PathVariable long submissionId)
+    {
+        eduSubmissionService.requireReviewAccess(taskId);
+        teams.migrateLegacy(taskId, submissionId);
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:my')")
+    @GetMapping("/team/{taskId}")
+    public AjaxResult team(@PathVariable long taskId) { return success(teams.overview(taskId)); }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:edit')")
+    @PostMapping("/team/{taskId}")
+    public AjaxResult createTeam(@PathVariable long taskId, @jakarta.validation.Valid @RequestBody TeamText body)
+    {
+        return success(teams.create(taskId, body.text()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:edit')")
+    @PostMapping("/team/{taskId}/invite")
+    public AjaxResult invite(@PathVariable long taskId, @jakarta.validation.Valid @RequestBody TeamText body)
+    {
+        return success(teams.invite(taskId, body.text()));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:edit')")
+    @PostMapping("/team/{taskId}/invite/{groupId}")
+    public AjaxResult respond(@PathVariable long taskId, @PathVariable long groupId, @RequestParam boolean accept)
+    {
+        return success(teams.respond(taskId, groupId, accept));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:edit')")
+    @PostMapping("/team/{taskId}/confirm")
+    public AjaxResult confirm(@PathVariable long taskId) { return success(teams.confirm(taskId)); }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:edit')")
+    @PutMapping("/team/{taskId}/contribution")
+    public AjaxResult contribute(@PathVariable long taskId, @jakarta.validation.Valid @RequestBody Contribution body)
+    {
+        teams.contribution(taskId, body.text());
+        return success();
+    }
+
     /**
      * 我的提交（ST-02-01 / ST-03-02）：未提交时也返回骨架，前端据 submittable 置灰按钮
      */
@@ -42,6 +132,19 @@ public class EduSubmissionController extends BaseController
     public AjaxResult my(@PathVariable Long taskId)
     {
         return success(eduSubmissionService.my(taskId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:submission:my')")
+    @GetMapping("/my/{taskId}/receipt")
+    public ResponseEntity<byte[]> receipt(@PathVariable Long taskId)
+    {
+        var receipt = eduSubmissionService.receipt(taskId);
+        String filename = "receipt-" + receipt.get("submissionId") + "-v" + receipt.get("version") + ".json";
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .header("X-Content-Type-Options", "nosniff")
+                .body(JSON.toJSONString(receipt, com.alibaba.fastjson2.JSONWriter.Feature.WriteNulls)
+                        .getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -64,7 +167,12 @@ public class EduSubmissionController extends BaseController
             return error("提交记录不存在");
         }
         eduSubmissionService.requireReviewAccess(submission.getTaskId());
-        return success(submission);
+        AjaxResult result = success(submission);
+        if (Integer.valueOf(1).equals(submission.getSubjectType()))
+        {
+            result.put("teamMembers", teams.members(submission.getTaskId(), submission.getGroupId()));
+        }
+        return result;
     }
 
     /**

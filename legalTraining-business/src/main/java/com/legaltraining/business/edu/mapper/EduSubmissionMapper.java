@@ -10,6 +10,17 @@ import com.legaltraining.business.edu.domain.EduSubmissionFile;
  */
 public interface EduSubmissionMapper
 {
+    EduSubmission selectCurrentSubmission(@Param("submissionId") Long submissionId);
+
+    int countReviewForVersion(@Param("submissionId") Long submissionId, @Param("version") Integer version);
+
+    EduSubmission selectByTaskAndGroup(@Param("taskId") Long taskId, @Param("groupId") Long groupId);
+
+    List<Long> groupParticipants(@Param("taskId") Long taskId, @Param("groupId") Long groupId);
+
+    int syncGroupStatus(@Param("taskId") Long taskId, @Param("groupId") Long groupId,
+            @Param("submitStatus") Integer status, @Param("overdueFlag") String overdue);
+
     EduSubmission selectEduSubmissionById(Long submissionId);
 
     /** 唯一键查询：同一学生同一任务只有一条 */
@@ -44,6 +55,11 @@ public interface EduSubmissionMapper
             @Param("operatorId") Long operatorId);
 
     List<java.util.LinkedHashMap> selectVersions(Long submissionId);
+
+    java.util.Map<String, Object> selectLatestReceipt(Long submissionId);
+
+    int insertReceiptNotices(@Param("taskId") Long taskId, @Param("submissionId") Long submissionId,
+            @Param("version") int version, @Param("receivers") List<Long> receivers);
 
     /** 最近一次退回原因（来自 edu_review） */
     String selectLastReturnReason(Long submissionId);

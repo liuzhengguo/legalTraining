@@ -16,6 +16,7 @@
       </el-table-column>
       <el-table-column label="操作" width="260">
         <template slot-scope="{ row }">
+          <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="$refs.caseReferences.show(row.courseId)">关联案例</el-button>
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="openForm(row)">编辑</el-button>
           <el-button v-hasPermi="['edu:course:add']" type="text" @click="openCopy(row)">复制</el-button>
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="openExhibits(row)">关联展厅</el-button>
@@ -24,6 +25,7 @@
         </template>
       </el-table-column>
     </el-table>
+    <CaseReferences ref="caseReferences" type="course" />
     <pagination v-show="total > 0" :total="total" :page.sync="query.pageNum" :limit.sync="query.pageSize" @pagination="load" />
     <el-dialog :visible.sync="editing" :title="form.courseId ? '编辑课程' : '新建课程'" width="590px">
       <el-form ref="courseForm" :model="form" :rules="rules" label-width="100px" @submit.native.prevent="save">
@@ -68,9 +70,11 @@
   </div>
 </template>
 <script>
+import CaseReferences from '@/components/CaseReferences.vue'
 import request from '@/utils/request'
 
 export default {
+  components: { CaseReferences },
   name: 'EduCourse',
   data() {
     return {

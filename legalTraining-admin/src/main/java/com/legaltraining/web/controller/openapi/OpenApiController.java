@@ -27,6 +27,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import com.legaltraining.business.ops.domain.OpsApp;
+import com.legaltraining.web.controller.ops.RemoteRecommendationInbox;
+import com.legaltraining.web.interceptor.OpenApiInterceptor;
+import org.springframework.beans.factory.annotation.Value;
 
 /**
  * 开放接口业务端点（OP-02-01 ~ OP-02-09）。
@@ -47,9 +51,19 @@ public class OpenApiController extends BaseController
             + "date_format(publish_time,'%Y-%m-%d %H:%i:%s') as publishTime";
     private final JdbcTemplate jdbc;
 
-    public OpenApiController(JdbcTemplate jdbc)
+    private final CaseLibrary caseLibrary;
+    private final RemoteRecommendationInbox inbox;
+    private final String callbackAppId;
+    private final OpenApiVersionPolicy versions;
+
+    public OpenApiController(JdbcTemplate jdbc, CaseLibrary caseLibrary, RemoteRecommendationInbox inbox, OpenApiVersionPolicy versions,
+            @Value("${legal-training.recommendation-push.callback-app-id:}") String callbackAppId)
     {
         this.jdbc = jdbc;
+        this.caseLibrary = caseLibrary;
+        this.inbox = inbox;
+        this.callbackAppId = callbackAppId;
+        this.versions = versions;
     }
 
     public record ShareForm(@NotBlank @Pattern(regexp = "zone|item") String targetType,
@@ -59,13 +73,23 @@ public class OpenApiController extends BaseController
             @Size(max = 1000) String reason, Long targetZone, String signMode,
             @Size(max = 16) String level,
             @Pattern(regexp = "online|offline") String authProofType,
-            String confirmedAt) {}
+            @Size(max = 32) String confirmedAt, @Size(max = 200) String title,
+            @Size(max = 65535) String content, @Size(max = 32) String scopeDesc,
+            @Pattern(regexp = "withdrawn") String event, @Size(max = 64) String teacherAccount,
+            @Size(max = 100) String authorLabel) {}
     public record CallbackForm(@NotNull Long recId, @NotBlank @Pattern(regexp = "passed|rejected") String result,
-            Long itemId, @Size(max = 1000) String opinion, Long auditorId, String auditTime) {}
+            Long itemId, @Size(max = 1000) String opinion, Long auditorId, String auditTime,
+            @Pattern(regexp = "[a-f0-9-]{36}") String callbackId, Integer exhibitStatus, Long exhibitRevision) {}
     public record DeviceTokenForm(@NotBlank @Size(max = 64) String deviceCode,
             @NotBlank @Size(max = 16) String activateCode) {}
     public record ConsultForm(@NotBlank @Size(max = 100) String topic, Long itemId,
             @Pattern(regexp = "student|teacher|visitor") String identity, @Size(max = 64) String traceId) {}
+
+    @GetMapping("/version")
+    public ResponseEntity<AjaxResult> version()
+    {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(success(versions.current()));
+    }
 
     // --------------------------------------------------------------- OP-02-01 展区列表
 
@@ -215,31 +239,39 @@ public class OpenApiController extends BaseController
     @PostMapping("/rec/push")
     @Transactional
     public ResponseEntity<AjaxResult> push(@RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
-            @Valid @RequestBody PushForm form)
+            @RequestAttribute(OpenApiInterceptor.ATTR_APP) OpsApp app, @Valid @RequestBody PushForm form)
     {
         if (idempotencyKey != null && !idempotencyKey.isBlank() && !idempotencyKey.equals(String.valueOf(form.recId())))
         {
             return ResponseEntity.status(400).body(AjaxResult.error(400, "幂等键与 recId 不一致"));
         }
+        if (inbox.enabled())
+        {
+            if (!inbox.accepts(app.getAppCode())) return ResponseEntity.status(403).body(AjaxResult.error(403, "应用未绑定到成果接收端"));
+            if (idempotencyKey == null || idempotencyKey.isBlank())
+                return ResponseEntity.badRequest().body(AjaxResult.error(400, "缺少幂等键"));
+            if (form.recId() <= 0) return ResponseEntity.badRequest().body(AjaxResult.error(400, "推荐编号无效"));
+            if ("withdrawn".equals(form.event())) inbox.withdraw(app.getAppCode(), form.recId());
+            else inbox.receive(app.getAppCode(), form.recId(), form.title(), form.content(), form.reason(),
+                        form.signMode(), form.scopeDesc(), form.authProofType(), form.confirmedAt(),
+                        form.teacherAccount(), form.authorLabel());
+            return ResponseEntity.ok(AjaxResult.success(Map.of("accepted", true, "recId", form.recId())));
+        }
         List<Map<String, Object>> rows = jdbc.queryForList("select rec_id as recId,status,push_status as pushStatus "
                 + "from edu_recommendation where rec_id=? for update", form.recId());
         if (rows.isEmpty()) return ResponseEntity.status(404).body(AjaxResult.error(404, "推荐记录不存在"));
         Map<String, Object> rec = rows.get(0);
-        int pushStatus = ((Number) rec.get("pushStatus")).intValue();
-        if (pushStatus == 1)
-        {
-            return ResponseEntity.status(409).body(AjaxResult.error(604, "已接收过该推荐"));
-        }
         int status = ((Number) rec.get("status")).intValue();
         if (status == 0 || status == 4)
         {
             return ResponseEntity.status(409).body(AjaxResult.error(605, "推荐尚未获得学生授权或已撤回"));
         }
-        jdbc.update("update edu_recommendation set push_status=1,push_retry=0,target_zone=coalesce(?,target_zone),"
-                + "sign_mode=coalesce(?,sign_mode),level_code=coalesce(?,level_code),update_time=now() where rec_id=?",
-                form.targetZone(), form.signMode(), form.level(), form.recId());
-        jdbc.update("insert into ops_call_log(app_id,api_code,request_uri,method,req_id,http_status,call_time) "
-                + "values(null,'OP-02-05','/openapi/v1/rec/push','POST',?,200,now())", String.valueOf(form.recId()));
+        int pushStatus = ((Number) rec.get("pushStatus")).intValue();
+        if (pushStatus != 1)
+        {
+            jdbc.update("update edu_recommendation set push_status=1,push_retry=0,update_time=now() where rec_id=?",
+                    form.recId());
+        }
         return ResponseEntity.ok(AjaxResult.success(Map.of("accepted", true, "recId", form.recId())));
     }
 
@@ -247,15 +279,43 @@ public class OpenApiController extends BaseController
 
     @PostMapping("/rec/callback")
     @Transactional
-    public ResponseEntity<AjaxResult> callback(@Valid @RequestBody CallbackForm form)
+    public ResponseEntity<AjaxResult> callback(@RequestAttribute(OpenApiInterceptor.ATTR_APP) OpsApp app,
+            @Valid @RequestBody CallbackForm form)
     {
+        boolean remote = form.callbackId() != null;
+        if (remote != !callbackAppId.isBlank() || remote && !callbackAppId.equals(app.getAppCode()))
+            return ResponseEntity.status(403).body(AjaxResult.error(403, "应用未绑定到审核回写"));
         List<Map<String, Object>> rows = jdbc.queryForList("select r.rec_id as recId,r.status,r.teacher_id as teacherId,"
                 + "s.user_id as studentId,r.exhibit_id as exhibitId from edu_recommendation r "
                 + "join edu_submission s on s.submission_id=r.submission_id where r.rec_id=? for update", form.recId());
         if (rows.isEmpty()) return ResponseEntity.status(404).body(AjaxResult.error(404, "推荐记录不存在"));
         Map<String, Object> rec = rows.get(0);
         int status = ((Number) rec.get("status")).intValue();
-        if (status == 2 || status == 3)
+        String fingerprint = null;
+        if (form.callbackId() != null)
+        {
+            if (jdbc.queryForList("select rec_id from ops_rec_push_job where rec_id=?", Long.class, form.recId()).isEmpty())
+                return ResponseEntity.status(404).body(AjaxResult.error(404, "推荐未发送到独立展厅"));
+            fingerprint = com.legaltraining.business.ops.support.OpenApiSign.hmacSha256("callback-payload", JSON.toJSONString(form));
+            List<String> receipts = jdbc.queryForList(
+                    "select payload_hash from ops_rec_callback_receipt where rec_id=? and callback_id=?",
+                    String.class, form.recId(), form.callbackId());
+            if (!receipts.isEmpty())
+                return receipts.get(0).equals(fingerprint) ? ResponseEntity.ok(AjaxResult.success(Map.of("ok", true)))
+                        : ResponseEntity.status(409).body(AjaxResult.error(606, "回写编号与已受理内容冲突"));
+            if (form.exhibitStatus() != null || form.exhibitRevision() != null)
+                return recordExhibitStatus(form, fingerprint, rec, status);
+            if (form.itemId() != null)
+            {
+                if (form.itemId() <= 0 || status != 2 || rec.get("exhibitId") != null || !"passed".equals(form.result()))
+                    return ResponseEntity.status(409).body(AjaxResult.error(606, "当前推荐无法关联展项"));
+                jdbc.update("update edu_recommendation set exhibit_id=?,update_time=now() where rec_id=?",
+                        form.itemId(), form.recId());
+                recordRemoteCallback(form, fingerprint);
+                return ResponseEntity.ok(AjaxResult.success(Map.of("ok", true)));
+            }
+        }
+        if (status != 1)
         {
             return ResponseEntity.status(409).body(AjaxResult.error(606, "该推荐已回写过审核结果"));
         }
@@ -264,15 +324,58 @@ public class OpenApiController extends BaseController
         {
             return ResponseEntity.status(400).body(AjaxResult.error(400, "驳回须填写审核意见"));
         }
-        jdbc.update("insert into exh_review(rec_id,auditor_id,check_items,result,opinion,audit_time) values(?,?,?,?,?,now())",
-                form.recId(), form.auditorId(), null, passed ? 1 : 2, form.opinion());
+        if (!remote)
+        {
+            if (form.auditorId() == null) return ResponseEntity.badRequest().body(AjaxResult.error(400, "缺少审核人"));
+            jdbc.update("insert into exh_review(rec_id,auditor_id,check_items,result,opinion,audit_time) values(?,?,?,?,?,now())",
+                    form.recId(), form.auditorId(), null, passed ? 1 : 2, form.opinion());
+        }
         jdbc.update("update edu_recommendation set status=?,exhibit_id=coalesce(?,exhibit_id),review_opinion=?,"
                 + "auditor_id=?,audit_time=now(),push_status=1,update_time=now() where rec_id=?",
-                passed ? 2 : 3, form.itemId(), form.opinion(), form.auditorId(), form.recId());
+                passed ? 2 : 3, form.itemId(), form.opinion(), remote ? null : form.auditorId(), form.recId());
         String title = passed ? "成果审核通过" : "成果审核驳回";
         jdbc.update("insert into ops_notification(event_code,receiver_id,title,content,biz_type,biz_id,send_time) "
                 + "values('NT-10',?,?,?,'rec',?,now())", rec.get("teacherId"), title,
                 form.opinion() == null ? "" : form.opinion(), form.recId());
+        if (fingerprint != null)
+        {
+            recordRemoteCallback(form, fingerprint);
+            if (!rec.get("teacherId").equals(rec.get("studentId")))
+                jdbc.update("insert into ops_notification(event_code,receiver_id,title,content,biz_type,biz_id,send_time) "
+                        + "values('NT-10',?,?,?,'rec',?,now())", rec.get("studentId"), title,
+                        form.opinion() == null ? "" : form.opinion(), form.recId());
+        }
+        return ResponseEntity.ok(AjaxResult.success(Map.of("ok", true)));
+    }
+
+    private void recordRemoteCallback(CallbackForm form, String fingerprint)
+    {
+        jdbc.update("insert into ops_rec_callback_receipt(rec_id,callback_id,payload_hash,external_auditor_id) values(?,?,?,?)",
+                form.recId(), form.callbackId(), fingerprint, form.auditorId());
+    }
+
+    private ResponseEntity<AjaxResult> recordExhibitStatus(CallbackForm form, String fingerprint, Map<String, Object> rec, int status)
+    {
+        if (form.exhibitStatus() == null || !List.of(2, 3).contains(form.exhibitStatus())
+                || form.exhibitRevision() == null || form.exhibitRevision() <= 0 || form.itemId() == null)
+            return ResponseEntity.badRequest().body(AjaxResult.error(400, "展项状态或版本无效"));
+        if (status != 2 || !form.itemId().equals(rec.get("exhibitId")) || !"passed".equals(form.result()))
+            return ResponseEntity.status(409).body(AjaxResult.error(606, "当前推荐无法更新展项状态"));
+        List<Long> revisions = jdbc.queryForList("select revision from ops_rec_exhibit_state where rec_id=?",
+                Long.class, form.recId());
+        if (revisions.isEmpty() || form.exhibitRevision() > revisions.get(0))
+        {
+            jdbc.update("""
+                    insert into ops_rec_exhibit_state(rec_id,item_id,exhibit_status,revision) values(?,?,?,?)
+                    on duplicate key update exhibit_status=values(exhibit_status),revision=values(revision)
+                    """, form.recId(), form.itemId(), form.exhibitStatus(), form.exhibitRevision());
+            String title = form.exhibitStatus() == 2 ? "成果展项已发布" : "成果展项已下架";
+            jdbc.update("""
+                    insert into ops_notification(event_code,receiver_id,title,biz_type,biz_id,send_time)
+                    select 'NT-10',receiver,?,'rec',?,now() from (select ? as receiver union select ?) users
+                    """, title, form.recId(), rec.get("teacherId"), rec.get("studentId"));
+        }
+        recordRemoteCallback(form, fingerprint);
         return ResponseEntity.ok(AjaxResult.success(Map.of("ok", true)));
     }
 
@@ -282,7 +385,7 @@ public class OpenApiController extends BaseController
     @Transactional
     public ResponseEntity<AjaxResult> deviceToken(@Valid @RequestBody DeviceTokenForm form)
     {
-        List<Map<String, Object>> rows = jdbc.queryForList("select device_id as deviceId,status,mode,"
+        List<Map<String, Object>> rows = jdbc.queryForList("select device_id as deviceId,status,mode,timestampdiff(second,create_time,now()) as codeAge,"
                 + "cache_version as cacheVersion,config_json as config from exh_device "
                 + "where device_code=? and del_flag='0' for update", form.deviceCode());
         if (rows.isEmpty()) return ResponseEntity.status(404).body(AjaxResult.error(404, "设备码不存在"));
@@ -295,6 +398,11 @@ public class OpenApiController extends BaseController
         if (!form.activateCode().equals(config.getString("activateCode")))
         {
             return ResponseEntity.status(403).body(AjaxResult.error(403, "激活码不正确"));
+        }
+        Number codeAge = (Number) device.get("codeAge");
+        if (codeAge == null || codeAge.longValue() >= 86400)
+        {
+            return ResponseEntity.status(403).body(AjaxResult.error(403, "激活码已过期"));
         }
         config.remove("activateCode");
         String token = UUID.randomUUID().toString().replace("-", "");
@@ -313,28 +421,17 @@ public class OpenApiController extends BaseController
     // --------------------------------------------------------------- OP-02-08 案例检索
 
     @GetMapping("/cases")
-    public AjaxResult cases(@RequestParam(required = false) String keyword,
+    public AjaxResult cases(@RequestParam(required = false) @Size(max = 200) String keyword,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "10") int pageSize)
     {
-        int safePageNum = Math.max(pageNum, 1);
-        int safePageSize = Math.min(Math.max(pageSize, 1), 50);
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("pageNum", safePageNum);
-        data.put("pageSize", safePageSize);
-        data.put("keyword", keyword);
-        List<Map<String, Object>> rows = new ArrayList<>();
-        // 外部案例库按配置接入；未配置时降级为空气集，前端隐藏案例区（OP-02-08）
-        String caseUrl = config("biz.openapi.caseUrl", "");
-        boolean degrade = caseUrl.isBlank();
-        data.put("degrade", degrade);
-        data.put("total", 0);
-        data.put("rows", rows);
-        if (degrade)
-        {
-            data.put("degradeReason", "外部案例库未配置");
-        }
-        return AjaxResult.success(data);
+        return success(caseLibrary.cases(keyword, pageNum, pageSize));
+    }
+
+    @GetMapping("/cases/{id}")
+    public AjaxResult caseDetail(@PathVariable String id)
+    {
+        return success(caseLibrary.caseDetail(id));
     }
 
     // --------------------------------------------------------------- OP-02-09 AI 咨询

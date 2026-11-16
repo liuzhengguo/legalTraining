@@ -30,6 +30,8 @@ public interface IOpsAppService
 
     public int saveIps(Long appId, List<OpsAppIp> ips);
 
+    public void saveAuthorization(Long appId, List<OpsAppApi> apis, List<OpsAppIp> ips);
+
     /**
      * 开放接口鉴权：签名、状态、有效期、IP 白名单、限流
      *

@@ -1,6 +1,7 @@
 package com.legaltraining.web.controller.ops;
 
 import java.util.List;
+import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,6 +25,7 @@ import com.legaltraining.common.core.domain.AjaxResult;
 import com.legaltraining.common.core.page.TableDataInfo;
 import com.legaltraining.common.enums.BusinessType;
 import com.legaltraining.common.utils.poi.ExcelUtil;
+import com.legaltraining.web.controller.openapi.OpenApiVersionPolicy;
 
 /**
  * 应用接入与开放接口授权（E1 平台管理 / MG-02-04、OP-03）
@@ -34,6 +36,21 @@ public class OpsAppController extends BaseController
 {
     @Autowired
     private IOpsAppService opsAppService;
+    @Autowired
+    private OpenApiVersionPolicy versions;
+
+    @PreAuthorize("@ss.hasRole('admin')")
+    @GetMapping("/version-policy")
+    public AjaxResult versionPolicy() { return success(versions.current()); }
+
+    @Log(title = "开放接口下线计划", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasRole('admin')")
+    @PutMapping("/version-policy")
+    public AjaxResult saveVersionPolicy(@Valid @RequestBody OpenApiVersionPolicy.Schedule schedule)
+    {
+        versions.save(schedule, getUsername());
+        return success(versions.current());
+    }
 
     @PreAuthorize("@ss.hasPermi('ops:app:list')")
     @GetMapping("/list")
@@ -54,7 +71,7 @@ public class OpsAppController extends BaseController
     /**
      * 注册应用：响应的 secretPlain 只出现这一次，请当场保存
      */
-    @Log(title = "应用接入", businessType = BusinessType.INSERT)
+    @Log(title = "应用接入", businessType = BusinessType.INSERT, isSaveResponseData = false)
     @PreAuthorize("@ss.hasPermi('ops:app:add')")
     @PostMapping
     public AjaxResult add(@RequestBody OpsApp app)
@@ -88,7 +105,7 @@ public class OpsAppController extends BaseController
     /**
      * 重置密钥：旧密钥立即失效
      */
-    @Log(title = "应用密钥", businessType = BusinessType.UPDATE)
+    @Log(title = "应用密钥", businessType = BusinessType.UPDATE, isSaveResponseData = false)
     @PreAuthorize("@ss.hasPermi('ops:app:resetSecret')")
     @PutMapping("/{appId}/reset-secret")
     public AjaxResult resetSecret(@PathVariable Long appId)
@@ -104,7 +121,7 @@ public class OpsAppController extends BaseController
     @PutMapping("/{appId}/apis")
     public AjaxResult saveApis(@PathVariable Long appId, @RequestBody List<OpsAppApi> apis)
     {
-        return toAjax(opsAppService.saveApis(appId, apis));
+        return success(opsAppService.saveApis(appId, apis));
     }
 
     /**
@@ -115,8 +132,23 @@ public class OpsAppController extends BaseController
     @PutMapping("/{appId}/ips")
     public AjaxResult saveIps(@PathVariable Long appId, @RequestBody List<OpsAppIp> ips)
     {
-        return toAjax(opsAppService.saveIps(appId, ips));
+        return success(opsAppService.saveIps(appId, ips));
     }
+
+    @Log(title = "应用接口与 IP 授权", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('ops:app:edit')")
+    @PutMapping("/{appId}/authorization")
+    public AjaxResult saveAuthorization(@PathVariable Long appId, @RequestBody AppAuthorization authorization)
+    {
+        if (authorization.apis() == null || authorization.ips() == null)
+        {
+            return error("请同时提交接口授权与 IP 白名单");
+        }
+        opsAppService.saveAuthorization(appId, authorization.apis(), authorization.ips());
+        return success();
+    }
+
+    public record AppAuthorization(List<OpsAppApi> apis, List<OpsAppIp> ips) {}
 
     @Log(title = "应用接入", businessType = BusinessType.DELETE)
     @PreAuthorize("@ss.hasPermi('ops:app:remove')")
