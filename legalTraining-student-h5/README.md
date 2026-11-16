@@ -1,4 +1,4 @@
-# lt-student-h5 · 工程 B 学生移动端（E3）
+# legalTraining-student-h5 · 工程 B 学生移动端（E3）
 
 法律实训数字平台三个前端工程之一，独立仓库、独立域名、独立发版。见 `docs/06-工程拆分与部署.md`。
 
