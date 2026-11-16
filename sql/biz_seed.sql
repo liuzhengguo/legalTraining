@@ -192,7 +192,7 @@ DELETE FROM sys_menu WHERE menu_id BETWEEN 2000 AND 2199;
 
 -- 门户（E8，随 A 工程发布）
 INSERT INTO sys_menu VALUES (2000, '工作台', 0, 0, '/portal', NULL, NULL, '', 1, 0, 'M', '0', '0', '', 'dashboard', 'admin', sysdate(), '', NULL, 'E8 统一门户');
-INSERT INTO sys_menu VALUES (2001, '门户首页', 2000, 1, 'index', 'portal/index', NULL, '', 1, 0, 'C', '0', '0', 'portal:index:view', 'home', 'admin', sysdate(), '', NULL, 'OP-01-01/02');
+INSERT INTO sys_menu VALUES (2001, '门户首页', 2000, 1, 'index', 'portal/index', NULL, 'BusinessPortal', 1, 0, 'C', '0', '0', 'portal:index:view', 'home', 'admin', sysdate(), '', NULL, 'OP-01-01/02');
 INSERT INTO sys_menu VALUES (2002, '我的待办', 2000, 2, 'todo', 'portal/todo', NULL, '', 1, 0, 'C', '0', '0', 'portal:todo:list', 'message', 'admin', sysdate(), '', NULL, 'OP-01-03');
 
 -- E1 平台管理 /admin
@@ -207,10 +207,10 @@ INSERT INTO sys_menu VALUES (2016, '权限管理', 2010, 2, 'auth', NULL, NULL, 
 INSERT INTO sys_menu VALUES (2017, '账号授权', 2016, 1, 'grant', 'edu/grant/index', NULL, '', 1, 0, 'C', '0', '0', 'edu:grant:list', 'people', 'admin', sysdate(), '', NULL, 'MG-02-02');
 INSERT INTO sys_menu VALUES (2018, '接口授权', 2016, 2, 'app', 'ops/app/index', NULL, '', 1, 0, 'C', '0', '0', 'ops:app:list', 'link', 'admin', sysdate(), '', NULL, 'MG-02-04 / OP-03');
 INSERT INTO sys_menu VALUES (2019, '教学监管', 2010, 3, 'monitor', NULL, NULL, '', 1, 0, 'M', '0', '0', '', 'monitor', 'admin', sysdate(), '', NULL, NULL);
-INSERT INTO sys_menu VALUES (2020, '课程任务总览', 2019, 1, 'course', 'edu/monitor/course', NULL, '', 1, 0, 'C', '0', '0', 'edu:monitor:course', 'chart', 'admin', sysdate(), '', NULL, 'MG-03-01');
-INSERT INTO sys_menu VALUES (2021, '批阅进度', 2019, 2, 'review', 'edu/monitor/review', NULL, '', 1, 0, 'C', '0', '0', 'edu:monitor:review', 'edit', 'admin', sysdate(), '', NULL, 'MG-03-02');
+INSERT INTO sys_menu VALUES (2020, '课程任务总览', 2019, 1, 'course', 'edu/monitor/course', NULL, 'CourseMonitor', 1, 0, 'C', '0', '0', 'edu:monitor:course', 'chart', 'admin', sysdate(), '', NULL, 'MG-03-01');
+INSERT INTO sys_menu VALUES (2021, '批阅进度', 2019, 2, 'review', 'edu/monitor/review', NULL, 'ReviewMonitor', 1, 0, 'C', '0', '0', 'edu:monitor:review', 'edit', 'admin', sysdate(), '', NULL, 'MG-03-02');
 INSERT INTO sys_menu VALUES (2022, '数据导出', 2010, 4, 'export', NULL, NULL, '', 1, 0, 'M', '0', '0', '', 'download', 'admin', sysdate(), '', NULL, NULL);
-INSERT INTO sys_menu VALUES (2023, '成绩汇总', 2022, 1, 'score', 'edu/score/summary', NULL, '', 1, 0, 'C', '0', '0', 'edu:score:summary', 'excel', 'admin', sysdate(), '', NULL, 'MG-04-01');
+INSERT INTO sys_menu VALUES (2023, '成绩汇总', 2022, 1, 'score', 'edu/score/summary', NULL, 'EduScoreSummary', 1, 0, 'C', '0', '0', 'edu:score:summary', 'excel', 'admin', sysdate(), '', NULL, 'MG-04-01');
 INSERT INTO sys_menu VALUES (2024, '展厅监管', 2010, 5, 'exh', NULL, NULL, '', 1, 0, 'M', '0', '0', '', 'eye-open', 'admin', sysdate(), '', NULL, NULL);
 INSERT IGNORE INTO sys_menu VALUES (2028, '备份恢复', 2010, 6, 'backup', 'ops/backup/index', NULL, '', 1, 0, 'C', '0', '0', 'ops:backup:admin', 'database', 'admin', sysdate(), '', NULL, 'MG-06-03');
 INSERT INTO sys_menu VALUES (2025, '展区开放配置', 2024, 1, 'zone-level', 'exh/zone/level', NULL, '', 1, 0, 'C', '0', '0', 'exh:zone:level', 'tree-table', 'admin', sysdate(), '', NULL, 'MG-05-01');

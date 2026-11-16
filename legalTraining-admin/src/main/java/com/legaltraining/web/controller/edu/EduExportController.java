@@ -6,15 +6,23 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,7 +30,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
+import com.legaltraining.common.utils.SecurityUtils;
 import com.legaltraining.common.utils.uuid.IdUtils;
+import com.legaltraining.business.edu.scope.BusinessScopeChecker;
 
 /**
  * 数据导出（MG-04-01 成绩汇总与导出 / MG-04-02 成果包与过程台账导出）
@@ -37,13 +47,15 @@ public class EduExportController extends BaseController
 
     private final JdbcTemplate jdbc;
     private final ThreadPoolExecutor exportExecutor;
+    private final BusinessScopeChecker scope;
 
     @Value("${legal-training.profile}")
     private String profile;
 
-    public EduExportController(JdbcTemplate jdbc)
+    public EduExportController(JdbcTemplate jdbc, BusinessScopeChecker scope)
     {
         this.jdbc = jdbc;
+        this.scope = scope;
         this.exportExecutor = new ThreadPoolExecutor(1, 2, 60, java.util.concurrent.TimeUnit.SECONDS,
                 new java.util.concurrent.LinkedBlockingQueue<>(100),
                 r -> new Thread(r, "edu-export"));
@@ -62,6 +74,7 @@ public class EduExportController extends BaseController
         {
             return error("请指定 taskId 或 courseId");
         }
+        requireExportScope(taskId, courseId);
         String where = taskId != null ? " sc.task_id = " + taskId
                 : " tk.course_id = " + courseId;
         String sql =
@@ -90,6 +103,7 @@ public class EduExportController extends BaseController
         {
             return error("请指定 courseId 或 taskId");
         }
+        requireExportScope(taskId, courseId);
         String where = taskId != null ? " tk.task_id = " + taskId
                 : " tk.course_id = " + courseId;
         String sql =
@@ -120,6 +134,7 @@ public class EduExportController extends BaseController
         {
             return error("请指定 courseId");
         }
+        requireExportScope(null, courseId);
         String sql =
             "select p.student_no, u.nick_name as studentName, tk.title as taskTitle, " +
             "tk.publish_time, par.submit_status, s.submit_time, s.version, " +
@@ -154,9 +169,57 @@ public class EduExportController extends BaseController
     @GetMapping("/tasks")
     public AjaxResult tasks()
     {
-        return success(jdbc.queryForList(
-            "select id, export_type, row_count, file_path, status, operator_id, operate_time, " +
-            "left(filter_json, 200) as filter_json from edu_export_log order by id desc limit 200"));
+        String fields = "select id, export_type, row_count, status, operator_id, operate_time, "
+                + "left(filter_json, 200) as filter_json from edu_export_log";
+        String order = " order by id desc limit 200";
+        return success(SecurityUtils.isAdmin(getUserId())
+                ? jdbc.queryForList(fields + order)
+                : jdbc.queryForList(fields + " where operator_id=?" + order, getUserId()));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('edu:export:query,edu:score:export,edu:export:package,edu:export:ledger')")
+    @GetMapping("/tasks/{id}/download")
+    public ResponseEntity<FileSystemResource> download(@PathVariable long id) throws IOException
+    {
+        var records = jdbc.queryForList("select file_path, operator_id, export_type from edu_export_log "
+                + "where id=? and status=1 and file_path is not null", id);
+        if (records.isEmpty()) return ResponseEntity.notFound().build();
+        var record = records.get(0);
+        String permission = switch (String.valueOf(record.get("export_type")))
+        {
+            case "score" -> "edu:score:export";
+            case "result_package" -> "edu:export:package";
+            case "process_ledger" -> "edu:export:ledger";
+            default -> "";
+        };
+        if (!SecurityUtils.hasPermi(permission)
+                || (!SecurityUtils.isAdmin(getUserId())
+                    && !getUserId().equals(((Number) record.get("operator_id")).longValue())))
+        {
+            return ResponseEntity.status(403).build();
+        }
+        Path candidate = Path.of((String) record.get("file_path"));
+        if (!Files.isRegularFile(candidate)) return ResponseEntity.notFound().build();
+        Path file = candidate.toRealPath();
+        if (!file.startsWith(Path.of(profile, "export").toRealPath()))
+        {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"export-" + id + ".csv\"")
+                .body(new FileSystemResource(file));
+    }
+
+    private void requireExportScope(Long taskId, Long courseId)
+    {
+        if (taskId != null)
+        {
+            var courses = jdbc.queryForList("select course_id from edu_task where task_id=? and del_flag='0'",
+                    Long.class, taskId);
+            scope.requireCourseAccess(courses.isEmpty() ? null : courses.get(0));
+            return;
+        }
+        scope.requireCourseAccess(courseId);
     }
 
     // ------------------------------------------------------------------
@@ -169,14 +232,19 @@ public class EduExportController extends BaseController
         final String fileId = IdUtils.fastSimpleUUID();
         final String dir = profile + "/export/" + type;
         final String path = dir + "/" + fileId + ".csv";
-        final Map<String, Object> filterJson = filter;
-        final AtomicInteger logId = new AtomicInteger(0);
-
-        // 先登记「生成中」，同步/异步生成后回写
-        jdbc.update("insert into edu_export_log(export_type, filter_json, row_count, file_path, operator_id, operate_time, status) "
-                + "values(?,?,?,?,?,now(),0)", type, toJson(filterJson), rowCount, path, getUserId());
-        Long id = jdbc.queryForObject("select max(id) from edu_export_log", Long.class);
-        logId.set(id.intValue());
+        var key = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            var statement = connection.prepareStatement("insert into edu_export_log(export_type, filter_json, "
+                    + "row_count, file_path, operator_id, operate_time, status) values(?,?,?,?,?,now(),0)",
+                    Statement.RETURN_GENERATED_KEYS);
+            statement.setString(1, type);
+            statement.setString(2, toJson(filter));
+            statement.setInt(3, rowCount);
+            statement.setString(4, path);
+            statement.setLong(5, getUserId());
+            return statement;
+        }, key);
+        long logId = key.getKey().longValue();
 
         if (async)
         {
@@ -184,27 +252,27 @@ public class EduExportController extends BaseController
                 try
                 {
                     writeCsv(path, header, fields, rows);
-                    jdbc.update("update edu_export_log set status = 1 where id = ?", logId.get());
+                    jdbc.update("update edu_export_log set status = 1 where id = ?", logId);
                 }
                 catch (Exception e)
                 {
-                    jdbc.update("update edu_export_log set status = 2 where id = ?", logId.get());
+                    jdbc.update("update edu_export_log set status = 2 where id = ?", logId);
                 }
             });
-            return success(Map.of("exportId", logId.get(), "async", true, "rowCount", rowCount,
+            return success(Map.of("exportId", logId, "async", true, "rowCount", rowCount,
                     "msg", "数据量较大，已转异步生成，可通过 /edu/export/tasks 查询进度"));
         }
         try
         {
             writeCsv(path, header, fields, rows);
-            jdbc.update("update edu_export_log set status = 1 where id = ?", logId.get());
+            jdbc.update("update edu_export_log set status = 1 where id = ?", logId);
         }
         catch (IOException e)
         {
-            jdbc.update("update edu_export_log set status = 2 where id = ?", logId.get());
+            jdbc.update("update edu_export_log set status = 2 where id = ?", logId);
             return error("导出文件生成失败：" + e.getMessage());
         }
-        return success(Map.of("exportId", logId.get(), "async", false, "rowCount", rowCount, "filePath", path));
+        return success(Map.of("exportId", logId, "async", false, "rowCount", rowCount));
     }
 
     private void writeCsv(String path, String[] header, String[] fields, List<Map<String, Object>> rows)

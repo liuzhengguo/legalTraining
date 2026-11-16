@@ -1,9 +1,12 @@
 package com.legaltraining.web.controller.edu;
 
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,6 +26,7 @@ import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
 import com.legaltraining.common.core.page.TableDataInfo;
 import com.legaltraining.common.enums.BusinessType;
+import com.legaltraining.common.utils.SecurityUtils;
 
 /**
  * 教学资源（TC-02-01~04）
@@ -101,6 +105,19 @@ public class EduResourceController extends BaseController
     public AjaxResult download(@PathVariable Long resourceId)
     {
         return success(eduResourceService.authorizeDownload(resourceId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('edu:resource:query')")
+    @GetMapping("/{resourceId}/preview")
+    public ResponseEntity<FileSystemResource> preview(@PathVariable Long resourceId) throws IOException
+    {
+        EduResource resource = eduResourceService.selectEduResourceById(resourceId);
+        if (resource == null || resource.getStatus() != 0) return ResponseEntity.notFound().build();
+        if (!SecurityUtils.isAdmin(getUserId()) && !getUserId().equals(resource.getOwnerId()))
+        {
+            return ResponseEntity.status(403).build();
+        }
+        return StudentLearningController.serveFile(resource.getFileId(), resource.getFileName(), resource.getFileExt(), false);
     }
 
     /**

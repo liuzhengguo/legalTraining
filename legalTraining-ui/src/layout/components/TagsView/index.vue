@@ -152,7 +152,8 @@ export default {
     isFirstView() {
       try {
         const tag = this.selectedTag && this.selectedTag.fullPath ? this.selectedTag : this.selectedDropdownTag
-        return tag.fullPath === '/index' || tag.fullPath === this.visitedViews[1].fullPath
+        const firstClosable = this.visitedViews.find(view => !this.isAffix(view))
+        return this.isAffix(tag) || tag.fullPath === (firstClosable && firstClosable.fullPath)
       } catch (err) {
         return false
       }
@@ -329,24 +330,20 @@ export default {
         this.moveToCurrentTag()
       })
     },
-    closeAllTags(view) {
+    closeAllTags() {
       this.$tab.closeAllPage().then(({ visitedViews }) => {
         if (this.affixTags.some(tag => tag.path === this.$route.path)) {
           return
         }
-        this.toLastView(visitedViews, view)
+        this.toLastView(visitedViews)
       })
     },
-    toLastView(visitedViews, view) {
+    toLastView(visitedViews) {
       const latestView = visitedViews.slice(-1)[0]
       if (latestView) {
         this.$router.push(latestView.fullPath)
       } else {
-        if (view && view.name === 'Dashboard') {
-          this.$router.replace({ path: '/redirect' + view.fullPath })
-        } else {
-          this.$router.push('/')
-        }
+        this.$router.push('/')
       }
     },
     openMenu(tag, e) {

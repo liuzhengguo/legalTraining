@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { request } from './api'
 import LinkedCases from './LinkedCases.vue'
@@ -58,6 +58,35 @@ function galleryUrl(entry) {
 const achievementStatuses = ['待授权', '待审核', '审核通过', '审核驳回', '已撤回或拒绝', '已生成展项']
 const statuses = ['未提交', '草稿', '已提交', '已批阅', '已退回', '逾期未交', '任务取消']
 const lateStatuses = ['', '待审批', '已通过', '已驳回']
+const navigation = [
+  { to: '/course', title: '我的课程', routes: ['courses', 'course', 'task'] },
+  { to: '/score', title: '我的成绩', routes: ['score'] },
+  { to: '/achievements', title: '我的成果', routes: ['achievements'] },
+  { to: '/notifications', title: '通知', routes: ['notifications'] }
+]
+const activePage = computed(() => navigation.find(entry => entry.routes.includes(route.name)))
+const clock = ref(Date.now())
+const deadlineTimer = setInterval(() => { clock.value = Date.now() }, 1000)
+onUnmounted(() => clearInterval(deadlineTimer))
+const countdown = computed(() => {
+  const deadline = data.value?.task?.deadline
+  if (!deadline || data.value.task.status !== 1) return ''
+  const remaining = new Date(deadline.replace(' ', 'T')).getTime() - clock.value
+  if (!Number.isFinite(remaining)) return ''
+  if (remaining <= 0) return '已到截止时间'
+  const minutes = Math.ceil(remaining / 60000)
+  const days = Math.floor(minutes / 1440)
+  const hours = Math.floor(minutes % 1440 / 60)
+  return '距截止 ' + (days ? days + ' 天 ' : '') + (hours ? hours + ' 小时 ' : '') + minutes % 60 + ' 分钟'
+})
+const unreadCount = computed(() => route.name === 'notifications' && Array.isArray(data.value)
+  ? data.value.filter(entry => entry.isRead === '0').length : 0)
+const pageHints = {
+  courses: '进入课程查看实训任务、提交要求和学习资料。',
+  score: '查看已发布的实训成绩和复核进度。',
+  achievements: '查看教师推荐、展示授权和审核进度。',
+  notifications: '查看任务安排、批阅结果和成果动态。'
+}
 
 function draftEditable() {
   const submission = data.value.submission
@@ -291,22 +320,31 @@ function openResource(resource, download = false) {
 </script>
 
 <template>
-  <main class="page learning" :aria-busy="loading || busy">
-    <header class="card">
-      <h1>法律实训 · 学生端</h1>
-      <nav v-if="route.name !== 'login'">
-        <RouterLink to="/course">我的课程</RouterLink>
-        <RouterLink to="/score">我的成绩</RouterLink>
-        <RouterLink to="/achievements">我的成果</RouterLink>
-        <RouterLink to="/notifications">通知</RouterLink>
-        <button type="button" :disabled="busy" @click="signOut">退出登录</button>
+  <div class="learning" :class="{ 'learning--login': route.name === 'login' }">
+    <header class="workspace-nav">
+      <RouterLink class="brand" to="/course">
+        <span class="brand-mark" aria-hidden="true">法</span>
+        <span>法律实训<small>学生端</small></span>
+      </RouterLink>
+      <nav v-if="activePage" class="primary-nav" aria-label="学生端导航">
+        <RouterLink v-for="entry in navigation" :key="entry.to" :to="entry.to"
+          :class="{ selected: entry === activePage }" :aria-current="entry === activePage ? 'location' : undefined">
+          {{ entry.title }}
+        </RouterLink>
       </nav>
+      <button v-if="activePage" class="logout secondary" type="button" :disabled="busy" @click="signOut">退出登录</button>
+    </header>
+    <main class="page workspace-main" :aria-busy="loading || busy">
+    <header v-if="pageHints[route.name]" class="page-banner">
+      <div><h1>{{ activePage.title }}</h1><p>{{ pageHints[route.name] }}</p></div>
+      <span v-if="unreadCount" class="banner-count">{{ unreadCount }} 条未读</span>
     </header>
     <p v-if="error" class="card error" role="alert">{{ error }}</p>
     <p v-if="message" class="card" role="status">{{ message }}</p>
     <p v-if="loading" class="card" role="status">加载中…</p>
     <form v-if="route.name === 'login'" class="card fields" @submit.prevent="signIn">
-      <label>学号 <input v-model.trim="login.username" autocomplete="username" required></label>
+      <h1>登录学生端</h1>
+      <label>登录账号 <input v-model.trim="login.username" autocomplete="username" required></label>
       <label>密码 <input v-model="login.password" type="password" autocomplete="current-password" required></label>
       <label v-if="captcha?.captchaEnabled">验证码
         <img :src="'data:image/png;base64,' + captcha.img" alt="登录验证码">
@@ -314,16 +352,18 @@ function openResource(resource, download = false) {
       </label>
       <button :disabled="busy || loading || !captcha">登录</button>
     </form>
-    <section v-else-if="data && route.name === 'courses'" class="card">
-      <h2>我的课程</h2>
-      <p v-if="!data.length">暂无课程</p>
-      <ul><li v-for="course in data" :key="course.courseId">
-        <RouterLink :to="'/course/' + course.courseId">{{ course.courseName }}</RouterLink>
-      </li></ul>
+    <section v-else-if="data && route.name === 'courses'" aria-label="课程列表">
+      <p v-if="!data.length" class="card empty">暂无课程，课程发布并分配到你的班级后会显示在这里。</p>
+      <div v-else class="course-grid">
+        <RouterLink v-for="course in data" :key="course.courseId" :to="'/course/' + course.courseId" class="card course-card">
+          <h2>{{ course.courseName }}</h2>
+          <p v-if="course.intro">{{ course.intro }}</p>
+          <span class="course-cta">进入课程 <span aria-hidden="true">→</span></span>
+        </RouterLink>
+      </div>
     </section>
     <section v-else-if="data && route.name === 'achievements'">
-      <h2 class="card">我的成果</h2>
-      <p v-if="!data.length" class="card">暂无推荐成果</p>
+      <p v-if="!data.length" class="card empty">暂无推荐成果</p>
       <article v-for="item in data" :key="item.recId" class="card fields">
         <h3>{{ item.title }}</h3>
         <p>{{ item.zoneName }} · {{ achievementStatuses[item.status] }}</p>
@@ -352,16 +392,22 @@ function openResource(resource, download = false) {
       </article>
     </section>
     <section v-else-if="data && route.name === 'notifications'">
-      <h2 class="card">通知</h2>
-      <p v-if="!data.length" class="card">暂无通知</p>
-      <article v-for="notification in data" :key="notification.id" class="card">
-        <h3>{{ notification.title }}</h3>
+      <p v-if="!data.length" class="card empty">暂无通知</p>
+      <article v-for="notification in data" :key="notification.id" class="card notification"
+        :class="{ unread: notification.isRead === '0' }">
+        <div class="notification-title">
+          <h2>{{ notification.title }}</h2>
+          <span v-if="notification.isRead === '0'" class="unread-label">未读</span>
+        </div>
         <p>{{ notification.content }}</p>
-        <p>{{ notification.sendTime }}</p>
-        <RouterLink v-if="notification.bizType === 'rec'" to="/achievements">查看成果</RouterLink>
-        <RouterLink v-if="notification.eventCode === 'NT-03'" :to="'/task/' + notification.bizId">查看提交和回执</RouterLink>
-        <RouterLink v-if="['NT-06', 'NT-07', 'SCORE-APPEAL'].includes(notification.eventCode)" to="/score">查看成绩</RouterLink>
-        <button v-if="notification.isRead === '0'" :disabled="busy" @click="markRead(notification)">标为已读</button>
+        <p class="muted">{{ notification.sendTime }}</p>
+        <nav v-if="notification.isRead === '0' || ['NT-01', 'NT-02', 'NT-03', 'NT-06', 'NT-07', 'SCORE-APPEAL'].includes(notification.eventCode) || notification.bizType === 'rec'" aria-label="通知操作">
+          <RouterLink v-if="notification.bizType === 'rec'" to="/achievements">查看成果</RouterLink>
+          <RouterLink v-if="notification.bizType === 'task' && ['NT-01', 'NT-02'].includes(notification.eventCode)" :to="'/task/' + notification.bizId">查看任务</RouterLink>
+          <RouterLink v-if="notification.eventCode === 'NT-03'" :to="'/task/' + notification.bizId">查看提交和回执</RouterLink>
+          <RouterLink v-if="['NT-06', 'NT-07', 'SCORE-APPEAL'].includes(notification.eventCode)" to="/score">查看成绩</RouterLink>
+          <button v-if="notification.isRead === '0'" class="secondary" :disabled="busy" @click="markRead(notification)">标为已读</button>
+        </nav>
       </article>
     </section>
     <section v-else-if="data && route.name === 'course'" class="card">
@@ -378,9 +424,9 @@ function openResource(resource, download = false) {
       <p class="multiline">{{ data.intro }}</p>
       <h3>任务</h3>
       <p v-if="!data.tasks.length">暂无任务</p>
-      <ul><li v-for="task in data.tasks" :key="task.taskId">
+      <ul class="record-list"><li v-for="task in data.tasks" :key="task.taskId">
         <RouterLink :to="'/task/' + task.taskId">{{ task.title }}</RouterLink>
-        <span> · {{ statuses[task.submitStatus] }}</span>
+        <span class="muted">截止 {{ task.deadline }} · {{ statuses[task.submitStatus] }}</span>
       </li></ul>
       <h3>课程资源</h3>
       <p v-if="!data.resources.length">暂无资源</p>
@@ -407,6 +453,20 @@ function openResource(resource, download = false) {
       <p class="multiline">{{ data.task.requirement }}</p>
       <LinkedCases :endpoint="'/edu/learning/tasks/' + route.params.taskId + '/cases'" />
       <p>截止时间 {{ data.task.deadline }} · {{ statuses[data.submission.status] }}</p>
+      <p v-if="countdown" class="muted">{{ countdown }}</p>
+      <section aria-label="评分规则">
+        <h3>评分规则</h3>
+        <p>{{ ['百分制', '等级制', '多维度加权'][data.task.scoreMode] }} · 满分 {{ data.task.totalScore }}</p>
+        <ul v-if="data.task.scoreItems?.length">
+          <li v-for="item in data.task.scoreItems" :key="item.itemId">{{ item.itemName }} · 满分 {{ item.maxScore }}</li>
+        </ul>
+      </section>
+      <section v-if="data.exhibits?.length" aria-label="关联展厅内容">
+        <h3>关联展厅内容</h3>
+        <ul><li v-for="entry in data.exhibits" :key="entry.targetType + ':' + entry.targetId">
+          <a :href="galleryUrl(entry)" target="_blank" rel="noopener">{{ entry.title }}</a>
+        </li></ul>
+      </section>
       <div v-if="data.submission.submitTime">
         <p>提交编号 {{ data.submission.submissionId }} · {{ data.submission.submitTime }} · {{ statuses[data.submission.status] }}</p>
         <button type="button" :disabled="busy" @click="downloadReceipt">下载提交回执</button>
@@ -449,9 +509,12 @@ function openResource(resource, download = false) {
           </form>
         </div>
       </section>
-      <div v-if="data.feedback?.reviewComment">
+      <div v-if="data.feedback">
         <h3>教师评语</h3>
         <p class="multiline">{{ data.feedback.reviewComment }}</p>
+        <ul v-if="data.feedback.items?.length">
+          <li v-for="item in data.feedback.items" :key="item.itemId">{{ item.itemName }} · {{ item.score }} / {{ item.maxScore }}</li>
+        </ul>
       </div>
       <label>作业说明
         <span v-if="editors.some(editor => editor.userId !== teamInfo?.selfId)" role="status">
@@ -478,11 +541,10 @@ function openResource(resource, download = false) {
       </form>
     </section>
     <section v-else-if="data && route.name === 'score'" class="card">
-      <h2>我的成绩</h2>
-      <p v-if="!data.length">暂无已发布成绩</p>
-      <ul><li v-for="score in data" :key="score.scoreId">
+      <p v-if="!data.length" class="empty">暂无已发布成绩</p>
+      <ul class="record-list"><li v-for="score in data" :key="score.scoreId">
         <RouterLink :to="'/task/' + score.taskId">{{ score.taskTitle }}</RouterLink>
-        <span> · {{ score.levelCode || score.finalScore }}</span>
+        <strong class="score-value">{{ score.levelCode || score.finalScore }}</strong>
         <div v-if="appeals[score.scoreId]">
           异议状态：{{ appealStatuses[appeals[score.scoreId].status] }}
           <p v-if="appeals[score.scoreId].reply" class="multiline">{{ appeals[score.scoreId].reply }}</p>
@@ -495,16 +557,79 @@ function openResource(resource, download = false) {
         <button v-else :disabled="busy" @click="appealScoreId = score.scoreId; appealReason = ''">申请成绩复核</button>
       </li></ul>
     </section>
-  </main>
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.learning { max-width: 46rem; margin: auto; }
-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.learning {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  min-height: 100dvh;
+  background: #f2f6fc;
+}
+.workspace-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  height: 100dvh;
+  padding: 1.6rem 1rem;
+  background: #102347;
+  color: #f2f6ff;
+}
+.brand { display: flex; align-items: center; gap: .75rem; padding: .35rem; color: inherit; font-size: 1.15rem; font-weight: 750; text-decoration: none; }
+.brand-mark { display: grid; place-items: center; width: 2.7rem; height: 2.7rem; border-radius: .75rem; background: #d7e8ff; color: #12386e; }
+.brand small { display: block; color: #b7c9e9; font-size: .75rem; font-weight: 500; }
+nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.primary-nav { flex-direction: column; align-items: stretch; margin-top: 2.4rem; }
+.primary-nav a { padding: .75rem 1rem; border-radius: .65rem; color: #c8d8f3; text-decoration: none; font-weight: 650; }
+.primary-nav a:hover, .primary-nav .selected { color: white; background: #27497c; }
+.workspace-main { width: 100%; max-width: 78rem; margin-inline: auto; padding: clamp(1rem, 4vw, 3rem); }
+.workspace-main .card { margin: 0 0 1rem; padding: clamp(1rem, 2.7vw, 1.65rem); border: 1px solid #dce6f4; box-shadow: 0 4px 16px #1d3c6610; }
+.page-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.35rem;
+  padding: clamp(1.25rem, 4vw, 2.6rem);
+  color: white;
+  background: linear-gradient(112deg, #132d59, #245594);
+  border-radius: 1rem;
+}
+h1, h2, h3 { line-height: 1.3; margin: 0; }
+h1 { font-size: clamp(1.65rem, 4vw, 2.45rem); }
+h2 { font-size: 1.2rem; }
+.page-banner p { color: #e1ecff; margin: .5rem 0 0; }
+.banner-count { padding: .35rem .8rem; border-radius: 2rem; background: #ffffff20; }
+.course-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.course-grid .course-card { display: flex; flex-direction: column; min-height: 11rem; margin: 0; text-decoration: none; color: inherit; }
+.course-grid .course-card:hover { border-color: #6a98d5; }
+.course-card p { color: var(--lt-sub); }
+.course-cta { color: #1756a6; margin-top: auto; padding-top: .7rem; font-weight: 700; }
+.notification.unread { border-inline-start: .25rem solid #3774c4; }
+.notification-title { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; }
+.unread-label { background: #e7f0ff; color: #174b8b; padding: .15rem .55rem; border-radius: 2rem; font-size: .8rem; }
+.muted, .empty { color: var(--lt-sub); }
+.empty { text-align: center; padding-block: 1rem; }
+.record-list { list-style: none; padding: 0; margin: .7rem 0 0; }
+.record-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .85rem; border-radius: .65rem; background: #f2f6fc; }
+.record-list form { flex-basis: 100%; }
+.record-list .muted, .score-value { margin-inline-start: auto; }
+.score-value { font-size: 1.35rem; color: #174b8b; }
+.workspace-main a { color: #1756a6; text-underline-offset: .2em; }
 .fields, label { display: grid; gap: .65rem; }
-input, textarea, button { font: inherit; padding: .5rem; }
-button { cursor: pointer; }
-button:disabled { cursor: default; }
+input, textarea, select, button { font: inherit; padding: .55rem .75rem; border-radius: .55rem; }
+input, textarea, select { min-width: 0; border: 1px solid #b8c8dd; background: white; color: inherit; }
+button { min-height: 2.5rem; border: 1px solid transparent; background: #1956a2; color: white; cursor: pointer; }
+button:hover:enabled { filter: brightness(1.12); }
+button:disabled { cursor: default; opacity: .58; }
+.secondary { background: #eaf2ff; color: #174b8b; border-color: #d2e2fa; }
+.logout { margin-top: auto; }
+:is(a, button, input, textarea, select):focus-visible { outline: 3px solid #6a9de0; outline-offset: 3px; }
 textarea { width: 100%; }
 img { max-width: 100%; }
 video, audio, iframe { width: 100%; }
@@ -512,4 +637,22 @@ iframe { min-height: 24rem; }
 li { margin-block: .5rem; }
 .multiline { white-space: pre-wrap; overflow-wrap: anywhere; }
 .error { color: var(--lt-danger); }
+.learning--login { display: block; background: #eaf1fc; }
+.learning--login .workspace-nav { position: static; min-height: auto; height: auto; align-items: center; }
+.learning--login .workspace-main { max-width: 32rem; }
+.learning--login label img { display: block; }
+@media (max-width: 700px) {
+  .learning { display: block; }
+  .workspace-nav { position: static; min-height: auto; height: auto; flex-direction: row; align-items: center; justify-content: space-between; padding: .7rem 1rem; }
+  .logout { margin-top: 0; }
+  .primary-nav {
+    position: fixed; z-index: 5; inset: auto 0 0;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .25rem;
+    margin: 0; padding: .4rem .35rem calc(.4rem + var(--lt-safe-bottom));
+    background: #102347; text-align: center;
+  }
+  .primary-nav a { padding: .6rem .15rem; font-size: .85rem; }
+  .workspace-main { padding-bottom: calc(4.5rem + var(--lt-safe-bottom)); }
+  .record-list .muted { margin-inline-start: 0; }
+}
 </style>

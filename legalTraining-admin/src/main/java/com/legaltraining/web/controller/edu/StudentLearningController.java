@@ -165,18 +165,39 @@ public class StudentLearningController extends BaseController
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task", tasks.selectEduTaskById(taskId));
+        data.put("exhibits", jdbc.queryForList("""
+                select te.target_type as targetType, te.target_id as targetId,
+                       case when te.target_type='zone' then z.zone_name
+                            else json_unquote(json_extract(v.snapshot,'$.title')) end as title
+                from edu_task_exhibit te
+                left join exh_item i on te.target_type='item' and i.item_id=te.target_id
+                    and i.status=2 and i.view_level=2 and i.del_flag='0'
+                left join exh_item_version v on v.item_id=i.item_id and v.version=(
+                    select max(p.version) from exh_item_version p where p.item_id=i.item_id and p.edit_type in (1,2))
+                join exh_zone z on z.zone_id=case when te.target_type='zone' then te.target_id
+                    else cast(json_unquote(json_extract(v.snapshot,'$.zoneId')) as unsigned) end
+                where te.task_id=? and z.status=1 and z.open_level=2 and z.del_flag='0'
+                order by te.id
+                """, taskId));
         EduSubmission submission = submissions.my(taskId);
         data.put("submission", submission);
         if (submission.getSubmissionId() != null)
         {
             List<Map<String, Object>> feedback = jdbc.queryForList(
-                    "select r.review_comment as reviewComment, r.publish_time as publishTime "
+                    "select r.review_id as reviewId, r.review_comment as reviewComment, r.publish_time as publishTime "
                     + "from edu_review r where r.submission_id = ? and r.submission_version = ? "
                     + "and r.status = 1 and r.is_return = '0' order by r.review_id desc limit 1",
                     submission.getSubmissionId(), submission.getVersion());
             if (!feedback.isEmpty())
             {
-                data.put("feedback", feedback.get(0));
+                Map<String, Object> review = feedback.get(0);
+                review.put("items", jdbc.queryForList("""
+                        select si.item_id as itemId, si.item_name as itemName, si.max_score as maxScore, rs.score
+                        from edu_review_score rs
+                        join edu_task_score_item si on si.item_id=rs.item_id
+                        where rs.review_id=? order by si.sort_no,si.item_id
+                        """, review.remove("reviewId")));
+                data.put("feedback", review);
             }
         }
         return success(data);
@@ -198,16 +219,22 @@ public class StudentLearningController extends BaseController
             return ResponseEntity.notFound().build();
         }
         Map<String, Object> resource = rows.get(0);
-        String fileId = (String) resource.get("file_id");
         if (download && !"1".equals(resource.get("allow_download")))
         {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
+        return serveFile((String) resource.get("file_id"), (String) resource.get("file_name"),
+                (String) resource.get("file_ext"), download);
+    }
+
+    static ResponseEntity<FileSystemResource> serveFile(String fileId, String name, String extension, boolean download)
+            throws IOException
+    {
         if (fileId == null || !fileId.matches("/profile/upload/[A-Za-z0-9_./-]+"))
         {
             return ResponseEntity.notFound().build();
         }
-        String mediaType = previewType((String) resource.get("file_ext"));
+        String mediaType = previewType(extension);
         if (!download && mediaType == null)
         {
             return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).build();
@@ -218,7 +245,6 @@ public class StudentLearningController extends BaseController
         {
             return ResponseEntity.notFound().build();
         }
-        String name = (String) resource.get("file_name");
         ContentDisposition disposition = (download ? ContentDisposition.attachment() : ContentDisposition.inline())
                 .filename(name == null ? file.getFileName().toString() : name, StandardCharsets.UTF_8).build();
         return ResponseEntity.ok()
@@ -229,7 +255,7 @@ public class StudentLearningController extends BaseController
                 .body(new FileSystemResource(file));
     }
 
-    private String previewType(String ext)
+    private static String previewType(String ext)
     {
         return ext == null ? null : PREVIEW_TYPES.get(ext.toLowerCase(java.util.Locale.ROOT));
     }

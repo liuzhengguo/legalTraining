@@ -5,7 +5,7 @@ const lock = {
   namespaced: true,
   state: {
     isLock: JSON.parse(localStorage.getItem(LOCK_KEY) || 'false'),
-    lockPath: localStorage.getItem(LOCK_PATH_KEY) || '/index'
+    lockPath: localStorage.getItem(LOCK_PATH_KEY) || '/'
   },
   mutations: {
     SET_LOCK(state, status) {

@@ -10,6 +10,12 @@ import { isRelogin } from '@/utils/request'
 NProgress.configure({ showSpinner: false })
 
 const whiteList = ['/login', '/register']
+const portalHome = '/portal/index'
+const homePaths = ['/', '/index', portalHome]
+const shouldUseProfile = to =>
+  (to.path === portalHome || homePaths.includes(to.redirectedFrom)) &&
+  router.match(portalHome).path !== portalHome
+
 
 const isWhiteList = (path) => {
   return whiteList.some(pattern => isPathMatch(pattern, path))
@@ -41,7 +47,7 @@ router.beforeEach((to, from, next) => {
           store.dispatch('GenerateRoutes').then(accessRoutes => {
             // 根据roles权限生成可访问的路由表
             router.addRoutes(accessRoutes) // 动态添加可访问路由表
-            next({ ...to, replace: true }) // hack方法 确保addRoutes已完成
+            next(shouldUseProfile(to) ? { path: '/user/profile', replace: true } : { ...to, replace: true })
           })
         }).catch(err => {
             store.dispatch('LogOut').then(() => {
@@ -50,7 +56,7 @@ router.beforeEach((to, from, next) => {
             })
           })
       } else {
-        next()
+        next(shouldUseProfile(to) ? { path: '/user/profile', replace: true } : undefined)
       }
     }
   } else {

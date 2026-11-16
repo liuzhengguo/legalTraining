@@ -30,6 +30,7 @@ const assetFailures = ref(0)
 const textScale = ref(Number(localStorage.getItem('lt-gallery-scale')) || 1)
 const night = ref(localStorage.getItem('lt-gallery-night') !== 'false')
 const lite = computed(() => route.name === 'lite' || route.name === 'liteItem' || route.name === 'liteZone')
+const lobby = computed(() => route.name === 'immersive' || route.name === 'lite')
 const offlineMessage = computed(() => route.query.reason === 'link' ? '该分享链接暂不可用。'
   : route.query.reason === 'adjusted' ? '该展项已调整。' : '该展项已下架。')
 const musicSource = imageUrl(import.meta.env.VITE_GALLERY_BGM_URL)
@@ -301,7 +302,7 @@ async function openCase(id) {
       @play="musicPlaying = true" @pause="musicPlaying = false"
       @error="musicPlaying = false; musicError = true" />
     <header v-if="!presentation" class="gallery-header">
-      <RouterLink to="/immersive">法律实训数字展厅</RouterLink>
+      <RouterLink class="gallery-brand" to="/immersive">法律实训数字展厅</RouterLink>
       <nav>
         <RouterLink v-if="!lite || !detail" :to="switchMode">{{ lite ? '进入沉浸式展厅' : '图文模式' }}</RouterLink>
         <template v-if="lite">
@@ -347,6 +348,12 @@ async function openCase(id) {
       展厅资源加载较慢，<RouterLink :to="switchMode">切换图文简版</RouterLink>
       <button @click="dismissWeak = true">继续等待</button>
     </p>
+    <section v-if="lobby" class="gallery-lobby" :class="{ 'gallery-lobby--lite': lite }">
+      <h1>{{ lite ? '图文导览' : '中央大厅' }}</h1>
+      <p>浏览法律实训展区与展项</p>
+      <RouterLink v-if="!loading && !error && zones.length && !lite" class="gallery-entry"
+        :to="modePath + '/zone/' + zones[0].zoneId">开始漫游</RouterLink>
+    </section>
     <p v-if="loading" role="status">加载中…</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
     <section v-else-if="route.name === 'offline'" class="item-card item-card__body">
@@ -408,10 +415,6 @@ async function openCase(id) {
       </div>
     </article>
     <template v-else>
-      <section v-if="!zone && !lite && zones.length" class="item-card item-card__body">
-        <h1>中央大厅</h1>
-        <RouterLink :to="'/immersive/zone/' + zones[0].zoneId">开始漫游</RouterLink>
-      </section>
       <template v-if="panorama">
         <h1>{{ zone.zoneName }}</h1>
         <PanoramaView :key="panorama" :source="panorama" :spots="spots" @error="onPanoramaError" />
@@ -427,14 +430,32 @@ async function openCase(id) {
           :to="'/immersive/' + spot.targetType + '/' + spot.targetId" />
       </section>
       <p v-if="zone?.intro">{{ zone.intro }}</p>
-      <nav v-if="!presentation" class="zone-links" aria-label="展区导览">
+      <section v-if="lobby && zones.length" class="gallery-section" aria-labelledby="gallery-zones">
+        <h2 id="gallery-zones">展区导览</h2>
+        <nav class="zone-layout--grid" aria-labelledby="gallery-zones">
+          <RouterLink v-for="entry in zones" :key="entry.zoneId" :to="modePath + '/zone/' + entry.zoneId"
+            class="item-card">
+            <GalleryImage v-if="!lite && imageUrl(entry.cover)" :source="imageUrl(entry.cover)" lazy
+              class="item-card__cover" @unavailable="onAssetError" />
+            <div class="item-card__body">
+              <h3 class="item-card__title">{{ entry.zoneName }}</h3>
+              <p v-if="entry.intro" class="item-card__summary">{{ entry.intro }}</p>
+            </div>
+          </RouterLink>
+        </nav>
+      </section>
+      <nav v-else-if="!lobby && zones.length && !presentation" class="zone-links" aria-label="展区导览">
         <RouterLink v-if="zone && previousZone" :to="modePath + '/zone/' + previousZone.zoneId">上一展区</RouterLink>
         <RouterLink v-if="zone && nextZone" :to="modePath + '/zone/' + nextZone.zoneId">下一展区</RouterLink>
         <RouterLink v-for="entry in zones" :key="entry.zoneId" :to="modePath + '/zone/' + entry.zoneId"
           :aria-current="entry.zoneId === zone?.zoneId ? 'location' : undefined">{{ entry.zoneName }}</RouterLink>
       </nav>
-      <p v-if="!visibleCards.length">暂无开放展项</p>
-      <section v-else :class="'zone-layout--' + (zone?.layout || (lite ? 'flow' : 'grid'))">
+      <section v-if="!visibleCards.length" class="gallery-empty" aria-labelledby="gallery-empty">
+        <h2 id="gallery-empty">{{ lobby && !zones.length ? '暂无公开展区' : '暂无开放展项' }}</h2>
+        <p>{{ lobby && !zones.length ? '展区开放并发布展项后，即可在这里浏览。' : '展项发布后将在这里展示。' }}</p>
+      </section>
+      <h2 v-if="lobby && visibleCards.length" class="gallery-section">开放展项</h2>
+      <section v-if="visibleCards.length" :class="'zone-layout--' + (zone?.layout || (lite ? 'flow' : 'grid'))">
         <component :is="presentation ? 'article' : 'RouterLink'" v-for="card in visibleCards" :key="card.itemId" :to="presentation ? undefined : modePath + '/item/' + card.itemId" class="item-card">
           <GalleryImage v-if="imageUrl(card.cover)" :source="imageUrl(card.cover)" lazy
             class="item-card__cover" @unavailable="onAssetError" />
@@ -455,6 +476,54 @@ async function openCase(id) {
 .gallery-header, .zone-links { display: flex; flex-wrap: wrap; gap: 1rem; padding: 1.5rem 0; }
 .gallery-header { justify-content: space-between; align-items: center; font-weight: 700; }
 a { color: inherit; }
+.gallery-brand { font-size: 1.15rem; text-decoration: none; }
+.gallery-header nav > :is(a, button), .gallery-header summary, .gallery-entry {
+  display: inline-block;
+  padding: .45rem .85rem;
+  border: 1px solid color-mix(in srgb, var(--ex-sub) 45%, transparent);
+  border-radius: .55rem;
+  background: var(--ex-panel);
+  color: var(--ex-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+.gallery-header summary { display: list-item; }
+.gallery-header details { position: relative; }
+.gallery-header details p {
+  position: absolute;
+  z-index: 2;
+  inset-inline-end: 0;
+  width: min(17rem, 75vw);
+  padding: .85rem 1rem;
+  margin: .25rem 0 0;
+  border-radius: var(--ex-radius);
+  background: var(--ex-panel);
+  box-shadow: 0 .5rem 1.5rem color-mix(in srgb, var(--ex-bg) 65%, transparent);
+  font-weight: 400;
+}
+.gallery-lobby {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  min-height: clamp(16rem, 42vh, 29rem);
+  padding: clamp(1.5rem, 6vw, 5rem);
+  border: 1px solid color-mix(in srgb, var(--ex-accent) 30%, transparent);
+  border-radius: var(--ex-radius);
+  background: radial-gradient(ellipse at 90% 0%, color-mix(in srgb, var(--ex-accent-2) 65%, transparent), transparent 65%), var(--ex-panel);
+}
+.gallery-lobby--lite { min-height: auto; background: var(--ex-panel); }
+.gallery-lobby h1 { margin: 0; font-size: clamp(2rem, 6vw, 4rem); line-height: 1.15; }
+.gallery-lobby p { margin: .85rem 0 0; color: var(--ex-sub); }
+.gallery-entry { margin-top: 1.25rem; border-color: var(--ex-accent); }
+.gallery-section, .gallery-empty { margin-top: 2rem; }
+.gallery-section .zone-layout--grid { margin-top: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.gallery-empty {
+  padding: 1.25rem clamp(1rem, 4vw, 2rem);
+  background: var(--ex-panel);
+  border-radius: var(--ex-radius);
+}
+.gallery-empty h2 { margin: 0; font-size: 1.15rem; }
+.gallery-empty p { margin: .4rem 0 0; color: var(--ex-sub); }
 .exhibit-detail { max-width: 60rem; margin-inline: auto; }
 .exhibit-content, .copy-result { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 button { font: inherit; padding: .45rem .8rem; cursor: pointer; }

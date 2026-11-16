@@ -4,7 +4,7 @@ legalTraining 提供用户与权限管理、组织管理、通知公告、任务
 
 ## 本地开发
 
-1. 新建 MySQL 数据库，依次导入 `sql/legalTraining.sql` 和 `sql/quartz.sql`。
+1. 新建 MySQL 数据库，依次导入 `sql/legalTraining.sql`、`sql/quartz.sql`、`sql/biz_schema.sql` 和 `sql/biz_seed.sql`，初始化系统表、业务表与业务菜单。
 2. 在 `legalTraining-admin/src/main/resources/application-druid.yml` 配置 MySQL 连接，并在同目录的 `application.yml` 配置 Redis 和上传目录。
 3. 从项目根目录构建并启动后端，默认端口为 8080。
 
@@ -24,6 +24,8 @@ legalTraining 提供用户与权限管理、组织管理、通知公告、任务
 生产环境的前端产物可用 `npm run build:prod` 构建，输出到 `legalTraining-ui/dist`。
 
 ## 已有部署升级
+
+已有 V3.0 库需要补齐门户、组织管理、教学监管、数据导出、展厅监管及资源管理菜单时，执行 `sql/v3_admin_navigation.sql`。升级前端后重新登录，加载新的角色菜单。
 
 停止旧版后端并备份数据库，然后在已有数据库执行 `sql/migrate_legalTraining.sql`。该脚本更新默认品牌数据和已保存的代码生成包名、任务调用目标，可重复执行。
 

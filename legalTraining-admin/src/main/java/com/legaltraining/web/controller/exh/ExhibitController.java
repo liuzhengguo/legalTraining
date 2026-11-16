@@ -57,7 +57,7 @@ public class ExhibitController
             @Size(max = 50000) String content) {}
 
     @GetMapping("/exh/zone/list")
-    @PreAuthorize("@ss.hasPermi('exh:zone:list')")
+    @PreAuthorize("@ss.hasAnyPermi('exh:zone:list,exh:zone:level')")
     public AjaxResult zones()
     {
         return AjaxResult.success(jdbc.queryForList("select " + ZONE_FIELDS
