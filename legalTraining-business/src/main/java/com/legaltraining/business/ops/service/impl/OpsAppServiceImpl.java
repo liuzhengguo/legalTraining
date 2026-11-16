@@ -3,6 +3,7 @@ package com.legaltraining.business.ops.service.impl;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,7 +51,38 @@ public class OpsAppServiceImpl implements IOpsAppService
     @Override
     public List<OpsApp> selectOpsAppList(OpsApp query)
     {
-        return opsAppMapper.selectOpsAppList(query);
+        List<OpsApp> apps = opsAppMapper.selectOpsAppList(query);
+        for (OpsApp app : apps)
+        {
+            List<OpsAppApi> apis = opsAppMapper.selectApis(app.getAppId());
+            List<OpsAppIp> ips = opsAppMapper.selectIps(app.getAppId());
+            int enabled = 0;
+            for (OpsAppApi api : apis)
+            {
+                if ("1".equals(api.getEnable()))
+                {
+                    enabled++;
+                }
+            }
+            app.setApiCount(enabled);
+            app.setIpCount(ips.size());
+            StringBuilder summary = new StringBuilder();
+            for (int i = 0; i < ips.size() && i < 3; i++)
+            {
+                if (i > 0)
+                {
+                    summary.append(", ");
+                }
+                summary.append(ips.get(i).getIpAddr());
+            }
+            if (ips.size() > 3)
+            {
+                summary.append(" …");
+            }
+            app.setIpSummary(summary.length() == 0 ? "不限制" : summary.toString());
+            app.setSecretReady(StringUtils.isNotEmpty(app.getAppSecret()));
+        }
+        return apps;
     }
 
     @Override
@@ -321,6 +353,12 @@ public class OpsAppServiceImpl implements IOpsAppService
     public List<OpsCallLog> selectCallLogList(OpsCallLog query)
     {
         return opsAppMapper.selectCallLogList(query);
+    }
+
+    @Override
+    public Map<String, Object> selectLogSummary()
+    {
+        return opsAppMapper.selectLogSummary();
     }
 
     /**

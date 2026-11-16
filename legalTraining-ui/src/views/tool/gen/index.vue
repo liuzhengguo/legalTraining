@@ -103,7 +103,7 @@
       <el-table-column label="实体" align="center" prop="className" :show-overflow-tooltip="true" width="140" />
       <el-table-column label="创建时间" align="center" prop="createTime" sortable="custom" :sort-orders="['descending', 'ascending']" width="160" />
       <el-table-column label="更新时间" align="center" prop="updateTime" sortable="custom" :sort-orders="['descending', 'ascending']" width="160" />
-      <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
+      <el-table-column label="操作" width="260" fixed="right" align="right" class-name="small-padding fixed-width">
         <template slot-scope="scope">
           <el-button
             type="text"

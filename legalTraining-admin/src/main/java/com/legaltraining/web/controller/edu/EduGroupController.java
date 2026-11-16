@@ -1,6 +1,7 @@
 package com.legaltraining.web.controller.edu;
 
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -13,7 +14,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.legaltraining.business.edu.domain.EduGroup;
+import com.legaltraining.business.edu.domain.EduClass;
+import com.legaltraining.business.edu.domain.EduStudent;
+import com.legaltraining.business.edu.service.IEduClassService;
 import com.legaltraining.business.edu.service.IEduGroupService;
+import com.legaltraining.business.edu.service.IEduStudentService;
 import com.legaltraining.common.annotation.Log;
 import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
@@ -29,6 +34,33 @@ public class EduGroupController extends BaseController
 {
     @Autowired
     private IEduGroupService eduGroupService;
+
+    @Autowired
+    private IEduClassService classService;
+
+    @Autowired
+    private IEduStudentService studentService;
+
+    @PreAuthorize("@ss.hasAnyPermi('edu:group:add,edu:group:edit')")
+    @GetMapping("/editor-options")
+    public AjaxResult editorOptions()
+    {
+        EduStudent query = new EduStudent();
+        query.setUserCategory("student");
+        return success(Map.of(
+                "crossClass", eduGroupService.isCrossClassEnabled(),
+                "classes", classService.selectEduClassList(new EduClass()).stream()
+                        .map(row -> new ClassOption(row.getClassId(), row.getClassName(), row.getTermName(), row.getStatus()))
+                        .toList(),
+                "students", studentService.selectStudentList(query).stream()
+                        .map(row -> new StudentOption(row.getUserId(), row.getNickName(), row.getStudentNo(),
+                                row.getUserName(), row.getClassId(), row.getClassName()))
+                        .toList()));
+    }
+
+    private record ClassOption(Long value, String name, String term, Integer status) {}
+
+    private record StudentOption(Long value, String name, String studentNo, String account, Long classId, String className) {}
 
     @PreAuthorize("@ss.hasPermi('edu:group:list')")
     @GetMapping("/list")

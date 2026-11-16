@@ -138,7 +138,7 @@
           <span>{{ scope.row.costTime }}毫秒</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
+      <el-table-column label="操作" width="100" fixed="right" align="right" class-name="small-padding fixed-width">
         <template slot-scope="scope">
           <el-button
             size="mini"

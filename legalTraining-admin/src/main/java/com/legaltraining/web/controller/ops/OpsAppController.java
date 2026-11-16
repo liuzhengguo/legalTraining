@@ -161,6 +161,16 @@ public class OpsAppController extends BaseController
     /**
      * 开放接口调用日志（排障：为什么被拒）
      */
+    /**
+     * 调用日志异常汇总：401/403/429/5xx 及总量，供接入页告警提示使用
+     */
+    @PreAuthorize("@ss.hasPermi('ops:app:log')")
+    @GetMapping("/log/summary")
+    public AjaxResult logSummary()
+    {
+        return success(opsAppService.selectLogSummary());
+    }
+
     @PreAuthorize("@ss.hasPermi('ops:app:log')")
     @GetMapping("/log")
     public TableDataInfo logList(OpsCallLog query)

@@ -357,3 +357,42 @@ INSERT INTO sys_config (config_name, config_key, config_value, config_type, crea
 ('外部案例库地址',       'biz.openapi.caseUrl',       '',      'N', 'admin', sysdate(), 'OP-02-08 留空即降级为空结果'),
 ('AI 咨询地址',          'biz.ai.consultUrl',         '',      'N', 'admin', sysdate(), 'OP-02-09 留空即降级提示未配置') AS new_cfg
 ON DUPLICATE KEY UPDATE config_value = new_cfg.config_value, remark = new_cfg.remark;
+
+-- ============================================================================
+-- 7. 资源分类（TC-02-02）：两级公共分类，按教学主题组织；可重复执行
+-- ============================================================================
+INSERT INTO edu_resource_category (parent_id, category_name, order_num, owner_id, status)
+SELECT n.parent_id, n.category_name, n.order_num, NULL, '0'
+FROM (
+  SELECT 0 AS parent_id, '法律法规' AS category_name, 1 AS order_num
+  UNION ALL SELECT 0, '案例库', 2
+  UNION ALL SELECT 0, '文书范本', 3
+  UNION ALL SELECT 0, '教学素材', 4
+) n
+WHERE NOT EXISTS (
+  SELECT 1 FROM edu_resource_category c
+  WHERE c.parent_id = n.parent_id AND c.category_name = n.category_name AND c.owner_id IS NULL
+);
+
+INSERT INTO edu_resource_category (parent_id, category_name, order_num, owner_id, status)
+SELECT p.category_id, n.category_name, n.order_num, NULL, '0'
+FROM (
+  SELECT '法律法规' AS parent_name, '法律' AS category_name, 1 AS order_num
+  UNION ALL SELECT '法律法规', '行政法规', 2
+  UNION ALL SELECT '法律法规', '司法解释', 3
+  UNION ALL SELECT '案例库', '民事案例', 1
+  UNION ALL SELECT '案例库', '刑事案例', 2
+  UNION ALL SELECT '案例库', '行政案例', 3
+  UNION ALL SELECT '文书范本', '起诉状与答辩状', 1
+  UNION ALL SELECT '文书范本', '裁判文书', 2
+  UNION ALL SELECT '文书范本', '合同范本', 3
+  UNION ALL SELECT '教学素材', '课件', 1
+  UNION ALL SELECT '教学素材', '音视频', 2
+  UNION ALL SELECT '教学素材', '图片图表', 3
+) n
+JOIN edu_resource_category p
+  ON p.parent_id = 0 AND p.category_name = n.parent_name AND p.owner_id IS NULL
+WHERE NOT EXISTS (
+  SELECT 1 FROM edu_resource_category c
+  WHERE c.parent_id = p.category_id AND c.category_name = n.category_name AND c.owner_id IS NULL
+);

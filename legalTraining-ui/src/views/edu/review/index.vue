@@ -21,7 +21,7 @@
       <el-table-column label="状态">
         <template slot-scope="{ row }">{{ row.lateApplyStatus === 1 ? '待审批补交' : '待批阅' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="140">
+      <el-table-column label="操作" fixed="right" align="right" width="140">
         <template slot-scope="{ row }">
           <el-button type="text" @click="open(row)">{{ row.lateApplyStatus === 1 ? '审批' : '查看并批阅' }}</el-button>
         </template>
@@ -34,7 +34,7 @@
         <el-table-column prop="studentNo" label="学号" />
         <el-table-column prop="studentName" label="学生" />
         <el-table-column prop="version" label="版本" />
-        <el-table-column label="操作">
+        <el-table-column label="操作" width="155" fixed="right" align="right">
           <template slot-scope="{ row }">
             <el-button type="text" :disabled="saving" @click="migrateLegacy(row)">迁移为小组作业</el-button>
           </template>

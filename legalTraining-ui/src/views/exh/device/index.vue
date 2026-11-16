@@ -12,7 +12,7 @@
       <el-table-column prop="bindPlaylist" label="播放列表" />
       <el-table-column prop="lastHeartbeat" label="最近心跳" />
       <el-table-column prop="cacheSize" label="清单字节数" />
-      <el-table-column label="操作">
+      <el-table-column label="操作" width="240" fixed="right" align="right">
         <template slot-scope="{ row }">
           <template v-if="row.status !== 3">
             <el-button type="text" @click="open('bind', row)">绑定</el-button>
@@ -50,7 +50,7 @@
       <el-table-column prop="playlistId" label="编号" />
       <el-table-column prop="name" label="名称" />
       <el-table-column label="展项数"><template slot-scope="{ row }">{{ row.items.length }}</template></el-table-column>
-      <el-table-column label="操作"><template slot-scope="{ row }"><el-button type="text" @click="editPlaylist(row)">编辑</el-button></template></el-table-column>
+      <el-table-column label="操作" width="90" fixed="right" align="right"><template slot-scope="{ row }"><el-button type="text" @click="editPlaylist(row)">编辑</el-button></template></el-table-column>
     </el-table>
     <el-dialog :visible.sync="playlistVisible" title="编辑播放列表" width="650px">
       <el-form label-width="100px" @submit.native.prevent="savePlaylist">

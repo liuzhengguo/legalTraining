@@ -63,6 +63,16 @@ public class SysLoginService
     {
         // 验证码校验
         validateCaptcha(username, code, uuid);
+        return authenticate(username, password, false);
+    }
+
+    public String studentLogin(String username, String password)
+    {
+        return authenticate(username, password, true);
+    }
+
+    private String authenticate(String username, String password, boolean studentOnly)
+    {
         // 登录前置校验
         loginPreCheck(username, password);
         // 用户验证
@@ -91,8 +101,17 @@ public class SysLoginService
         {
             AuthenticationContextHolder.clearContext();
         }
-        AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success")));
         LoginUser loginUser = (LoginUser) authentication.getPrincipal();
+        if (studentOnly && (loginUser.getUser().isAdmin()
+                || loginUser.getUser().getRoles() == null
+                || loginUser.getUser().getRoles().isEmpty()
+                || loginUser.getUser().getRoles().stream().anyMatch(role -> !"student".equals(role.getRoleKey()))))
+        {
+            String message = "请使用学生账号登录";
+            AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, message));
+            throw new ServiceException(message);
+        }
+        AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success")));
         recordLoginInfo(loginUser.getUserId());
         // 生成token
         return tokenService.createToken(loginUser);

@@ -1,6 +1,7 @@
 package com.legaltraining.web.controller.edu;
 
 import java.util.List;
+import java.util.Map;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,9 +19,11 @@ import com.legaltraining.business.edu.service.IEduMajorService;
 import com.legaltraining.common.annotation.Log;
 import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
+import com.legaltraining.common.core.domain.entity.SysDept;
 import com.legaltraining.common.core.page.TableDataInfo;
 import com.legaltraining.common.enums.BusinessType;
 import com.legaltraining.common.utils.poi.ExcelUtil;
+import com.legaltraining.system.service.ISysDeptService;
 
 /**
  * 专业（E1 平台管理 / MG-01-02 的院系专业维度）
@@ -31,6 +34,20 @@ public class EduMajorController extends BaseController
 {
     @Autowired
     private IEduMajorService eduMajorService;
+
+    @Autowired
+    private ISysDeptService deptService;
+
+    @PreAuthorize("@ss.hasAnyPermi('edu:major:list,edu:major:add,edu:major:edit')")
+    @GetMapping("/dept-options")
+    public AjaxResult deptOptions()
+    {
+        SysDept filter = new SysDept();
+        filter.setStatus("0");
+        return success(deptService.selectDeptList(filter).stream()
+                .map(dept -> Map.of("value", dept.getDeptId(), "label", dept.getDeptName()))
+                .toList());
+    }
 
     @PreAuthorize("@ss.hasPermi('edu:major:list')")
     @GetMapping("/list")

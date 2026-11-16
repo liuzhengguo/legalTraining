@@ -12,7 +12,7 @@
       <el-table-column prop="studentNo" label="学号" />
       <el-table-column prop="studentName" label="学生" />
       <el-table-column prop="finalScore" label="得分" />
-      <el-table-column label="操作">
+      <el-table-column label="操作" width="155" fixed="right" align="right">
         <template slot-scope="{ row }">
           <el-button v-if="row.status === 1 || row.status === 2" v-hasPermi="['edu:score:adjust']"
                      type="text" @click="openCorrection(row)">更正成绩</el-button>
@@ -31,7 +31,7 @@
         <el-table-column label="状态">
           <template slot-scope="{ row }">{{ ['待处理', '维持成绩', '已更正'][row.status] }}</template>
         </el-table-column>
-        <el-table-column label="操作">
+        <el-table-column label="操作" width="90" fixed="right" align="right">
           <template slot-scope="{ row }">
             <el-button v-if="row.status === 0" type="text" @click="openAppeal(row)">处理</el-button>
           </template>
@@ -89,7 +89,7 @@
           <span v-if="row.exhibitId">{{ exhibitStatuses[row.exhibitStatus] || '已关联展项' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="授权操作">
+      <el-table-column label="授权操作" width="170" fixed="right" align="right">
         <template slot-scope="{ row }">
           <template v-if="row.status === 0">
             <el-button type="text" :disabled="saving" @click="remind(row)">再次提醒</el-button>

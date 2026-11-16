@@ -134,7 +134,7 @@ export default {
   height: 50px;
   overflow: hidden;
   position: relative;
-  background: #fff;
+  background: #fff8ee;
   box-shadow: 0 1px 4px rgba(0,21,41,.08);
   display: flex;
   align-items: center;
@@ -191,7 +191,7 @@ export default {
       padding: 0 8px;
       height: 100%;
       font-size: 18px;
-      color: #5a5e66;
+      color: #714237;
       vertical-align: text-bottom;
 
       &.hover-effect {

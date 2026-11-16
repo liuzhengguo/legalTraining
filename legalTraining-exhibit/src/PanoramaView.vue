@@ -144,7 +144,15 @@ onMounted(() => {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image)
+      const limit = gl.getParameter(gl.MAX_TEXTURE_SIZE)
+      let source = image
+      if (image.width > limit) {
+        source = document.createElement('canvas')
+        source.width = limit
+        source.height = Math.round(image.height * limit / image.width)
+        source.getContext('2d').drawImage(image, 0, 0, source.width, source.height)
+      }
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
       if (gl.getError() !== gl.NO_ERROR) throw new Error('全景图超出设备可用尺寸')
       observer = new ResizeObserver(draw)
       observer.observe(canvas.value)
@@ -155,7 +163,7 @@ onMounted(() => {
     }
   }
   image.src = props.source
-  loadTimer = setTimeout(failed, 5000)
+  loadTimer = setTimeout(failed, 30000)
 })
 
 onUnmounted(() => {
@@ -176,6 +184,7 @@ onUnmounted(() => {
     <canvas ref="canvas" tabindex="0" aria-label="拖动或用方向键转动视角，用加号和减号缩放"
       @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerEnd" @pointercancel="pointerEnd"
       @keydown="keydown" @wheel.prevent="zoom($event.deltaY * .001)" @webglcontextlost.prevent="failed" />
+    <p v-if="!ready" class="loading" role="status">正在加载全景图…</p>
     <template v-if="ready">
       <RouterLink v-for="spot in projected" :key="spot.spotId" class="panorama-spot"
         :style="{ left: spot.left, top: spot.top }"
@@ -197,6 +206,7 @@ onUnmounted(() => {
 .panorama { position: relative; width: 100%; height: min(62vh, 640px); min-height: 20rem; overflow: hidden; }
 canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 canvas:active { cursor: grabbing; }
+.loading { position: absolute; inset: 45% 0 auto; margin: 0; text-align: center; pointer-events: none; }
 .panorama-spot, .controls { position: absolute; }
 .panorama-spot { transform: translate(-50%, -50%); padding: .3rem .55rem; border-radius: .4rem; background: var(--ex-panel); color: var(--ex-text); }
 .controls { display: flex; gap: .4rem; bottom: .8rem; right: .8rem; }

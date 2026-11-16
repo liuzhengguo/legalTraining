@@ -53,6 +53,18 @@ public class OpsApp extends BaseEntity
     /** IP 白名单 */
     private List<OpsAppIp> ipList;
 
+    /** 已启用接口数（列表概览，不泄露密钥） */
+    private Integer apiCount;
+
+    /** IP 白名单条数 */
+    private Integer ipCount;
+
+    /** IP 白名单摘要（最多展示 3 条） */
+    private String ipSummary;
+
+    /** 是否已签发密钥（仅布尔标志，不回显密钥） */
+    private Boolean secretReady;
+
     public Long getAppId()
     {
         return appId;
@@ -173,5 +185,45 @@ public class OpsApp extends BaseEntity
     public void setIpList(List<OpsAppIp> ipList)
     {
         this.ipList = ipList;
+    }
+
+    public Integer getApiCount()
+    {
+        return apiCount;
+    }
+
+    public void setApiCount(Integer apiCount)
+    {
+        this.apiCount = apiCount;
+    }
+
+    public Integer getIpCount()
+    {
+        return ipCount;
+    }
+
+    public void setIpCount(Integer ipCount)
+    {
+        this.ipCount = ipCount;
+    }
+
+    public String getIpSummary()
+    {
+        return ipSummary;
+    }
+
+    public void setIpSummary(String ipSummary)
+    {
+        this.ipSummary = ipSummary;
+    }
+
+    public Boolean getSecretReady()
+    {
+        return secretReady;
+    }
+
+    public void setSecretReady(Boolean secretReady)
+    {
+        this.secretReady = secretReady;
     }
 }

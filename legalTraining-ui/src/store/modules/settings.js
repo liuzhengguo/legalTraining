@@ -6,7 +6,7 @@ const { sideTheme, showSettings, navType, tagsView, tagsViewPersist, tagsIcon, f
 const storageSetting = JSON.parse(localStorage.getItem('layout-setting')) || ''
 const state = {
   title: '',
-  theme: storageSetting.theme || '#409EFF',
+  theme: storageSetting.theme || '#8d3025',
   sideTheme: storageSetting.sideTheme || sideTheme,
   showSettings: showSettings,
   navType: storageSetting.navType === undefined ? navType : storageSetting.navType,

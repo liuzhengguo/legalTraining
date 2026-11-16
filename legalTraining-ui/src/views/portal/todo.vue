@@ -8,7 +8,7 @@
       <el-table-column label="数量">
         <template slot-scope="{ row }">{{ todo.counts[row.key] }}</template>
       </el-table-column>
-      <el-table-column label="操作">
+      <el-table-column label="操作" width="110" fixed="right" align="right">
         <template slot-scope="{ row }">
           <router-link v-if="row.key === 'review' && can('edu:review:list') || row.key === 'audit' && can('exh:audit:list')" :to="row.path">处理</router-link>
           <a v-else-if="studentUrl(row.key)" :href="studentUrl(row.key)">打开学生端</a>

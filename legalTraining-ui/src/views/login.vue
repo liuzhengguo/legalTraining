@@ -156,8 +156,8 @@ export default {
   display: grid;
   grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
   min-height: 100vh;
-  color: #202b3c;
-  background: #fbfaf7;
+  color: var(--lt-login-text);
+  background: var(--lt-login-background);
 }
 .login-art {
   display: flex;
@@ -166,8 +166,7 @@ export default {
   min-height: 100%;
   padding: clamp(28px, 5vw, 76px);
   color: #fff;
-  background: linear-gradient(180deg, #151d2c55, transparent 28%, #151d2cb5 100%),
-    #1d2634 url("../assets/images/courtroom.webp") center / cover no-repeat;
+  background: var(--lt-login-art);
 }
 .login-brand { display: flex; align-items: center; gap: 12px; font-size: 16px; font-weight: 650; }
 .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #e9d4b8; border-radius: 9px; color: #f4d9b4; font-family: "Songti SC", SimSun, serif; font-size: 22px; }
@@ -177,22 +176,22 @@ export default {
 .login-form { width: min(100%, 392px); }
 .login-heading { margin-bottom: 35px; }
 .login-heading h2 { margin: 0; font-size: clamp(27px, 3vw, 38px); font-weight: 750; letter-spacing: -.025em; }
-.login-heading p { margin: 10px 0 0; color: #596476; font-size: 14px; }
+.login-heading p { margin: 10px 0 0; color: #76574a; font-size: 14px; }
 .login-form label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 650; }
-.login-form ::v-deep .el-input__inner { height: 48px; border-radius: 8px; border-color: #cfd6df; background: #fff; color: inherit; }
-.login-form ::v-deep .el-input__inner:focus { border-color: #345884; }
+.login-form ::v-deep .el-input__inner { height: 48px; border-radius: 8px; border-color: #e1c6ad; background: #fff; color: inherit; }
+.login-form ::v-deep .el-input__inner:focus { border-color: #963b2e; }
 .login-form ::v-deep .el-form-item { margin-bottom: 22px; }
 .login-verification { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 10px; align-items: center; }
-.captcha-button { display: grid; place-items: center; height: 48px; padding: 3px; border: 1px solid #cfd6df; border-radius: 8px; background: #fff; color: #345884; cursor: pointer; }
+.captcha-button { display: grid; place-items: center; height: 48px; padding: 3px; border: 1px solid #e1c6ad; border-radius: 8px; background: #fff; color: #963b2e; cursor: pointer; }
 .captcha-button img { display: block; max-width: 100%; height: auto; }
-.login-options { display: flex; justify-content: space-between; margin: 4px 0 22px; color: #345884; }
-.login-options ::v-deep .el-checkbox { margin: 0; color: #4c5769; }
-.login-submit.el-button--primary { width: 100%; min-height: 48px; border-color: #253e5d; border-radius: 8px; background: #253e5d; font-size: 15px; font-weight: 650; }
-.login-submit.el-button--primary:hover:not(.is-disabled) { background: #345884; }
+.login-options { display: flex; justify-content: space-between; margin: 4px 0 22px; color: #963b2e; }
+.login-options ::v-deep .el-checkbox { margin: 0; color: #76574a; }
+.login-submit.el-button--primary { width: 100%; min-height: 48px; border-color: #842d22; border-radius: 8px; background: #842d22; font-size: 15px; font-weight: 650; }
+.login-submit.el-button--primary:hover:not(.is-disabled) { background: #963b2e; }
 .login-submit.is-disabled { opacity: .65; }
 .login-submit i { margin-left: 4px; }
-.captcha-button:focus-visible, .login-submit:focus-visible { outline: 2px solid #345884; outline-offset: 3px; }
-.login-footer { position: absolute; bottom: 23px; left: 16px; right: 16px; text-align: center; font-size: 12px; color: #626c7a; }
+.captcha-button:focus-visible, .login-submit:focus-visible { outline: 2px solid #963b2e; outline-offset: 3px; }
+.login-footer { position: absolute; bottom: 23px; left: 16px; right: 16px; text-align: center; font-size: 12px; color: #76574a; }
 @media (max-width: 740px) {
   .login-page { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .login-art { min-height: 188px; padding: 20px 24px; background-position: center 50%; }

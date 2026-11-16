@@ -367,8 +367,8 @@ export default {
 .tags-view-container {
   height: 34px;
   width: 100%;
-  background: #fff;
-  border-bottom: 1px solid #d8dce5;
+  background: #fff8ee;
+  border-bottom: 1px solid #e8d5c4;
   display: flex;
   align-items: center;
 
@@ -377,7 +377,7 @@ export default {
   $btn-hover-bg: #f0f2f5;
   $btn-hover-color: #303133;
   $btn-disabled-color: #c0c4cc;
-  $divider: 1px solid #d8dce5;
+  $divider: 1px solid #e8d5c4;
 
   .tags-nav-btn {
     flex-shrink: 0;
@@ -421,9 +421,9 @@ export default {
       cursor: pointer;
       height: 26px;
       line-height: 26px;
-      border: 1px solid #d8dce5;
-      color: #495060;
-      background: #fff;
+      border: 1px solid #e8d5c4;
+      color: #714237;
+      background: #fff8ee;
       padding: 0 8px;
       font-size: 12px;
       margin-left: 5px;
@@ -436,12 +436,12 @@ export default {
         margin-right: 15px;
       }
       &.active {
-        background-color: #42b983;
-        color: #fff;
-        border-color: #42b983;
+        background-color: #8d3025;
+        color: #fff8ee;
+        border-color: #8d3025;
         &::before {
           content: '';
-          background: #fff;
+          background: #fff8ee;
           display: inline-block;
           width: 8px;
           height: 8px;
@@ -488,7 +488,7 @@ export default {
 
   .contextmenu {
     margin: 0;
-    background: #fff;
+    background: #fff8ee;
     z-index: 3000;
     position: fixed;
     list-style-type: none;
@@ -529,7 +529,7 @@ export default {
       }
       &:hover {
         background-color: #b4bccc;
-        color: #fff;
+        color: #fff8ee;
       }
     }
   }

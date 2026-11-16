@@ -92,10 +92,13 @@ create table sys_post
 -- ----------------------------
 -- 初始化-岗位信息表数据
 -- ----------------------------
-insert into sys_post values(1, 'ceo',  '董事长',    1, '0', 'admin', sysdate(), '', null, '');
-insert into sys_post values(2, 'se',   '项目经理',  2, '0', 'admin', sysdate(), '', null, '');
-insert into sys_post values(3, 'hr',   '人力资源',  3, '0', 'admin', sysdate(), '', null, '');
-insert into sys_post values(4, 'user', '普通员工',  4, '0', 'admin', sysdate(), '', null, '');
+insert into sys_post values(1, 'campus_admin', '系统管理员', 1, '0', 'admin', sysdate(), '', null, '');
+insert into sys_post values(2, 'faculty_teacher', '专任教师', 2, '0', 'admin', sysdate(), '', null, '');
+insert into sys_post values(3, 'academic_affairs', '教务管理', 3, '0', 'admin', sysdate(), '', null, '');
+insert into sys_post values(4, 'admin_support', '行政教辅', 4, '0', 'admin', sysdate(), '', null, '');
+insert into sys_post values(5, 'faculty_head', '院系负责人', 5, '0', 'admin', sysdate(), '', null, '');
+insert into sys_post values(6, 'student_counselor', '辅导员', 6, '0', 'admin', sysdate(), '', null, '');
+insert into sys_post values(7, 'training_admin', '实验实训管理员', 7, '0', 'admin', sysdate(), '', null, '');
 
 
 -- ----------------------------

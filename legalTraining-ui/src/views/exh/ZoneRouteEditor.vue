@@ -19,13 +19,21 @@
     <el-dialog title="展区导航热点" :visible.sync="spotsOpen" width="min(900px, 94vw)" append-to-body @closed="dragging = null">
       <div ref="preview" class="spot-preview" @pointermove="drag" @pointerup="dragging = null" @pointercancel="dragging = null">
         <img v-if="previewUrl" :src="previewUrl" alt="热点定位底图" draggable="false">
+        <p v-else class="preview-empty">未设置全景图或封面，按展厅深色底预览</p>
         <button v-for="(spot, index) in spots" :key="spot.localKey" type="button" class="marker"
+                :class="{ active: activeIndex === index }"
                 :title="spot.spotName" :aria-label="'定位热点 ' + (index + 1)"
                 :style="{ left: (spot.posX * 100) + '%', top: (spot.posY * 100) + '%' }"
-                @pointerdown.prevent="startDrag(index, $event)">{{ index + 1 }}</button>
+                @pointerdown.prevent="startDrag(index, $event)">
+          <span class="marker-dot" aria-hidden="true"></span>
+          <span class="marker-icon" aria-hidden="true">{{ icons[spot.icon] || '➜' }}</span>
+          <span class="marker-name">{{ spot.spotName || '未命名热点' }}</span>
+        </button>
       </div>
-      <p>拖动热点或填写 0 至 1 的原图坐标。</p>
-      <el-form v-for="(spot, index) in spots" :key="spot.localKey" inline class="spot-row">
+      <p>拖动热点调整位置；样式与展厅端一致，点击热点或悬停下方表单行可互相定位。</p>
+      <el-form v-for="(spot, index) in spots" :key="spot.localKey" inline class="spot-row"
+               :class="{ active: activeIndex === index }"
+               @mouseenter="activeIndex = index" @mouseleave="activeIndex = null">
         <el-form-item label="名称"><el-input v-model.trim="spot.spotName" maxlength="100" placeholder="热点名称" /></el-form-item>
         <el-form-item label="图标">
           <el-select v-model="spot.icon" class="small-select">
@@ -60,7 +68,8 @@ export default {
   props: { zones: { type: Array, required: true } },
   data() {
     return { ordered: [], orderOpen: false, spotsOpen: false, dragIndex: null, dragging: null,
-      items: [], spots: [], nextKey: 0, editZone: null, saving: false }
+      items: [], spots: [], nextKey: 0, editZone: null, saving: false, activeIndex: null,
+      icons: { arrow: '➜', item: '▣', info: 'ℹ' } }
   },
   computed: {
     previewUrl() {
@@ -119,6 +128,7 @@ export default {
     },
     startDrag(index, event) {
       this.dragging = index
+      this.activeIndex = index
       event.currentTarget.setPointerCapture(event.pointerId)
     },
     drag(event) {
@@ -138,7 +148,7 @@ export default {
         const data = this.spots.map(({ spotName, icon, targetType, targetId, posX, posY }, sortNo) =>
           ({ spotName, icon, targetType, targetId, posX, posY, sortNo }))
         await request({ url: '/exh/zone/' + this.editZone.zoneId + '/spots', method: 'put', data })
-        this.$modal.msgSuccess('热点已保存')
+        this.$modal.msgSuccess('热点已保存，展厅端即时生效')
         this.spotsOpen = false
       } finally { this.saving = false }
     }
@@ -150,10 +160,21 @@ export default {
 .zone-route-controls { display: inline-block; margin-left: 12px; }
 .route-list li { padding: .35rem 0; cursor: grab; }
 .route-list span { display: inline-block; min-width: 12rem; }
-.spot-preview { position: relative; min-height: 10rem; background: #eef2f6; }
+/* 预览底色与展厅端 base.css 的 --ex-bg 一致；热点配色取 --ex-accent/--ex-panel，与前端渲染同款 */
+.spot-preview { position: relative; min-height: 10rem; background: #141824; }
 .spot-preview img { display: block; width: 100%; }
+.preview-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  margin: 0; color: #9aa4b2; font-size: 13px; pointer-events: none; }
+/* 热点标记 = 网页版的蓝点 + 沉浸式的名称胶囊，两种前端形态合一 */
 .marker { position: absolute; transform: translate(-50%, -50%); touch-action: none; cursor: grab;
-  border: 1px solid #fff; border-radius: 50%; min-width: 1.8rem; min-height: 1.8rem; color: #fff; background: #2664aa; }
-.spot-row { padding-top: 1rem; }
+  display: flex; align-items: center; gap: .3rem; white-space: nowrap;
+  padding: .25rem .6rem .25rem .45rem; border-radius: .4rem;
+  border: 1px solid rgba(64, 158, 255, .55); background: rgba(26, 31, 46, .92);
+  color: #eef1f6; font-size: 13px; line-height: 1.5; transition: box-shadow .15s, border-color .15s; }
+.marker-dot { flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: #409EFF; box-shadow: 0 0 0 4px rgba(64, 158, 255, .24); }
+.marker.active, .marker:hover { border-color: #409EFF; box-shadow: 0 0 0 3px rgba(64, 158, 255, .3); }
+.spot-row { padding: .35rem .5rem; margin: .4rem -.5rem 0; border-radius: 6px; transition: background .15s; }
+.spot-row.active { background: #ecf5ff; }
 .small-select { width: 6rem; }
 </style>

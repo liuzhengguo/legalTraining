@@ -1,21 +1,35 @@
-/* 工程 B 移动端基线样式：单列卡片、安全区、禁选中长按
- *
- * 主色沿用 A 端 Element 主题色 #409EFF、危险色沿用 variables.scss 的 $red #C03639，
- * 与 A/C 三端同源（见 docs/06 第 5 章 视觉基线），不另立一套。
- */
+/* 学生端登录与学习页面共用的配色、圆角和安全区。 */
 :root {
-  --lt-bg: #f5f6f7;
-  --lt-card: #ffffff;
-  --lt-text: #1f2329;
-  --lt-sub: #6b7280;
-  --lt-primary: #409EFF;
+  --lt-bg: #3d100e;
+  --lt-card: #fff8ed;
+  --lt-text: #411b16;
+  --lt-sub: #76574a;
+  --lt-primary: #842d22;
+  --lt-primary-hover: #9e3b2b;
+  --lt-nav: #541914;
+  --lt-on-dark: #fff3da;
+  --lt-on-dark-muted: #f4d9b9;
+  --lt-active: #872d21;
+  --lt-field: #fbefdf;
+  --lt-tint: #f6e2cc;
+  --lt-badge: #f5d59d;
+  --lt-border: #e5c9ad;
+  --lt-focus: #9a472d;
+  --lt-radius: .75rem;
+  --lt-card-radius: 1.15rem;
   --lt-warning: #fa8c16;
-  --lt-danger: #C03639;
+  --lt-danger: #9b3330;
+  --lt-app-width: 100%;
+  --lt-safe-top: env(safe-area-inset-top, 0px);
   --lt-safe-bottom: env(safe-area-inset-bottom, 0px);
 
   /* 同步给 Vant 组件库，避免基础变量与组件内部色值不一致 */
-  --van-primary-color: #409EFF;
-  --van-danger-color: #C03639;
+  --van-primary-color: var(--lt-primary);
+  --van-danger-color: var(--lt-danger);
+}
+
+@media (min-width: 768px) and (pointer: fine) {
+  :root { --lt-app-width: 30rem; }
 }
 
 * { box-sizing: border-box; }
@@ -36,7 +50,7 @@ html, body, #app {
 
 .card {
   background: var(--lt-card);
-  border-radius: 12px;
+  border-radius: var(--lt-card-radius);
   padding: 14px 16px;
   margin: 12px;
 }

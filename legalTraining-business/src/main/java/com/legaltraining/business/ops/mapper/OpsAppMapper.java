@@ -1,6 +1,7 @@
 package com.legaltraining.business.ops.mapper;
 
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 import com.legaltraining.business.ops.domain.OpsApp;
 import com.legaltraining.business.ops.domain.OpsAppApi;
@@ -44,4 +45,7 @@ public interface OpsAppMapper
     public int insertCallLog(OpsCallLog log);
 
     public List<OpsCallLog> selectCallLogList(OpsCallLog query);
+
+    /** 调用日志异常汇总（OP-03-04：401/403/429/5xx） */
+    public Map<String, Object> selectLogSummary();
 }

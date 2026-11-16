@@ -40,6 +40,9 @@ public class OpsCallLog
     @Excel(name = "调用时间", dateFormat = "yyyy-MM-dd HH:mm:ss", width = 30)
     private Date callTime;
 
+    /** 查询条件：仅看异常（401/403/429/5xx），不落库 */
+    private Boolean abnormalOnly;
+
     public Long getId()
     {
         return id;
@@ -158,5 +161,15 @@ public class OpsCallLog
     public void setCallTime(Date callTime)
     {
         this.callTime = callTime;
+    }
+
+    public Boolean getAbnormalOnly()
+    {
+        return abnormalOnly;
+    }
+
+    public void setAbnormalOnly(Boolean abnormalOnly)
+    {
+        this.abnormalOnly = abnormalOnly;
     }
 }

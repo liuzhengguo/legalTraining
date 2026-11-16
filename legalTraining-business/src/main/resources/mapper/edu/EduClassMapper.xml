@@ -81,9 +81,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="classCode != null and classCode != ''">class_code = #{classCode},</if>
             <if test="className != null and className != ''">class_name = #{className},</if>
             <if test="deptId != null">dept_id = #{deptId},</if>
-            <if test="majorId != null">major_id = #{majorId},</if>
+            <if test="majorId != null">major_id = nullif(#{majorId}, 0),</if>
             <if test="gradeYear != null">grade_year = #{gradeYear},</if>
-            <if test="headTeacher != null">head_teacher = #{headTeacher},</if>
+            <if test="headTeacher != null">head_teacher = nullif(#{headTeacher}, 0),</if>
             <if test="status != null">status = #{status},</if>
             <if test="remark != null">remark = #{remark},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>

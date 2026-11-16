@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { request } from './api'
+import { showSuccessToast } from 'vant'
+import { profileImageUrl, request } from './api'
 import LinkedCases from './LinkedCases.vue'
 
 const route = useRoute()
@@ -11,8 +12,6 @@ const busy = ref(false)
 const loading = ref(false)
 const error = ref('')
 const message = ref('')
-const captcha = ref(null)
-const login = ref({ username: '', password: '', code: '' })
 const content = ref('')
 const teamInfo = ref(null)
 const editors = ref([])
@@ -59,11 +58,21 @@ const achievementStatuses = ['待授权', '待审核', '审核通过', '审核�
 const statuses = ['未提交', '草稿', '已提交', '已批阅', '已退回', '逾期未交', '任务取消']
 const lateStatuses = ['', '待审批', '已通过', '已驳回']
 const navigation = [
-  { to: '/course', title: '我的课程', routes: ['courses', 'course', 'task'] },
-  { to: '/score', title: '我的成绩', routes: ['score'] },
-  { to: '/achievements', title: '我的成果', routes: ['achievements'] },
-  { to: '/notifications', title: '通知', routes: ['notifications'] }
+  { to: '/course', title: '我的课程', icon: 'records', routes: ['courses', 'course', 'task'] },
+  { to: '/score', title: '我的成绩', icon: 'chart-trending-o', routes: ['score'] },
+  { to: '/achievements', title: '我的成果', icon: 'award-o', routes: ['achievements'] },
+  { to: '/profile', title: '我的', icon: 'user-o', routes: ['profile', 'notifications', 'feedback', 'version', 'avatar'] }
 ]
+const profileLinks = [
+  ...navigation.filter(entry => entry.to !== '/profile'),
+  { to: '/notifications', title: '通知', icon: 'bell' },
+  { to: '/profile/feedback', title: '意见反馈', icon: 'comment-o' },
+  { to: '/profile/version', title: '版本更新', icon: 'upgrade' }
+]
+const release = __STUDENT_RELEASE__
+const feedbackText = ref('')
+const updateStatus = ref('')
+const availableRelease = ref(null)
 const activePage = computed(() => navigation.find(entry => entry.routes.includes(route.name)))
 const clock = ref(Date.now())
 const deadlineTimer = setInterval(() => { clock.value = Date.now() }, 1000)
@@ -81,12 +90,26 @@ const countdown = computed(() => {
 })
 const unreadCount = computed(() => route.name === 'notifications' && Array.isArray(data.value)
   ? data.value.filter(entry => entry.isRead === '0').length : 0)
-const pageHints = {
-  courses: '进入课程查看实训任务、提交要求和学习资料。',
-  score: '查看已发布的实训成绩和复核进度。',
-  achievements: '查看教师推荐、展示授权和审核进度。',
-  notifications: '查看任务安排、批阅结果和成果动态。'
-}
+const profilePageTitles = { notifications: '通知', feedback: '意见反馈', version: '版本更新' }
+const primaryPage = computed(() => navigation.some(entry => entry.routes[0] === route.name))
+const parentPage = computed(() => {
+  if (route.name === 'task' && data.value?.task?.courseId) return '/course/' + data.value.task.courseId
+  return activePage.value?.to || '/course'
+})
+const appBarTitle = computed(() => {
+  if (route.name === 'courses') return '我的课程'
+  if (route.name === 'course') return '课程详情'
+  if (route.name === 'task') return '实训任务'
+  if (route.name === 'avatar') return '更换头像'
+  return profilePageTitles[route.name] || activePage.value?.title || '法律实训'
+})
+const avatarInput = ref(null)
+const avatarDraft = ref(null)
+const avatarUnavailable = ref(false)
+const savedAvatar = computed(() => profileImageUrl(data.value?.avatar))
+const avatarSource = computed(() => avatarDraft.value?.url || (!avatarUnavailable.value ? savedAvatar.value : ''))
+watch(savedAvatar, () => { avatarUnavailable.value = false })
+onUnmounted(clearAvatarDraft)
 
 function draftEditable() {
   const submission = data.value.submission
@@ -106,6 +129,7 @@ watch(() => route.fullPath, async (_, __, onCleanup) => {
   invitation.value = ''
   contribution.value = ''
   closePreview()
+  clearAvatarDraft()
   error.value = ''
   message.value = ''
   lateReason.value = ''
@@ -119,19 +143,20 @@ watch(() => route.fullPath, async (_, __, onCleanup) => {
       task: '/edu/learning/tasks/' + route.params.taskId,
       score: '/edu/score/my',
       achievements: '/edu/rec/my',
-      notifications: '/edu/learning/notifications'
+      notifications: '/edu/learning/notifications',
+      profile: '/getInfo',
+      avatar: '/getInfo'
     }
-    const result = route.name === 'login'
-      ? await request('/captchaImage', { authenticated: false })
-      : await request(endpoints[route.name])
+    const endpoint = endpoints[route.name]
+    if (!endpoint) return
+    const result = await request(endpoint)
     if (!active) return
     if (route.name === 'score') {
       const result = await request('/edu/score/appeals/my')
       if (!active) return
       appeals.value = Object.fromEntries(result.data.map(appeal => [appeal.scoreId, appeal]))
     }
-    if (route.name === 'login') captcha.value = result
-    else data.value = result.data
+    data.value = endpoint === '/getInfo' ? result.user : result.data
     if (route.name === 'task') {
       syncSubmission(result.data.submission)
       if (result.data.task.finishMode) {
@@ -199,30 +224,98 @@ function teamAction(suffix, body, method = 'POST') {
   })
 }
 
-function signIn() {
-  return run(async () => {
-    let result
-    try {
-      result = await request('/login', {
-        method: 'POST', authenticated: false, body: { ...login.value, uuid: captcha.value?.uuid }
-      })
-    } catch (cause) {
-      captcha.value = await request('/captchaImage', { authenticated: false })
-      login.value.code = ''
-      throw cause
-    }
-    localStorage.setItem('lt_token', result.token)
-    const destination = route.query.redirect
-    await router.replace(typeof destination === 'string' && /^\/(course|task|score|achievements|notifications)(\/|\?|$)/.test(destination) ? destination : '/course')
-  })
-}
-
 function signOut() {
   return run(async () => {
     await request('/logout', { method: 'POST' })
     localStorage.removeItem('lt_token')
     await router.replace('/login')
   })
+}
+
+function clearAvatarDraft() {
+  if (avatarDraft.value) URL.revokeObjectURL(avatarDraft.value.url)
+  avatarDraft.value = null
+}
+
+function chooseAvatar(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || busy.value) return
+  error.value = ''
+  message.value = ''
+  if (!/\.(?:jpe?g|png|gif|bmp)$/i.test(file.name)) {
+    error.value = '请选择 JPG、PNG、GIF 或 BMP 图片。'
+    return
+  }
+  if (!file.size || file.size > 10 * 1024 * 1024) {
+    error.value = '请选择不超过 10 MB 的有效图片。'
+    return
+  }
+  clearAvatarDraft()
+  avatarDraft.value = { file, url: URL.createObjectURL(file) }
+}
+
+function avatarImageFailed() {
+  if (avatarDraft.value) {
+    clearAvatarDraft()
+    error.value = '无法读取这张图片，请重新选择。'
+  } else {
+    avatarUnavailable.value = true
+  }
+}
+
+function saveAvatar() {
+  if (!avatarDraft.value) return
+  const draft = avatarDraft.value
+  const form = new FormData()
+  form.append('avatarfile', draft.file)
+  return run(async () => {
+    const image = new Image()
+    image.src = draft.url
+    await image.decode().catch(() => { throw new Error('无法读取这张图片，请重新选择。') })
+    if (avatarDraft.value !== draft) return
+    const result = await request('/system/user/profile/avatar', { method: 'POST', body: form })
+    if (!profileImageUrl(result.imgUrl)) throw new Error('头像地址无效，请重新进入个人页查看。')
+    if (route.name !== 'avatar' || avatarDraft.value !== draft) return
+    await router.replace('/profile')
+    showSuccessToast('头像已更新')
+  })
+}
+
+function submitFeedback() {
+  const content = feedbackText.value.trim()
+  if (!content) return
+  return run(async () => {
+    await request('/edu/learning/feedback', { method: 'POST', body: { content } })
+    feedbackText.value = ''
+    if (route.name === 'feedback') message.value = '反馈已提交。'
+  })
+}
+
+function checkUpdate() {
+  return run(async () => {
+    updateStatus.value = ''
+    availableRelease.value = null
+    const response = await fetch(import.meta.env.BASE_URL + 'student-version.json', { cache: 'no-store' })
+    if (!response.ok) throw new Error('暂时无法检查更新，请稍后再试。')
+    const latest = await response.json().catch(() => null)
+    if (typeof latest?.version !== 'string' || typeof latest.build !== 'string') {
+      throw new Error('暂时无法读取版本信息，请稍后再试。')
+    }
+    if (latest.version === release.version && latest.build === release.build) {
+      updateStatus.value = '当前已是最新版本。'
+    } else {
+      availableRelease.value = latest
+      updateStatus.value = '有新版本可用。'
+    }
+  })
+}
+
+function applyUpdate() {
+  if (!availableRelease.value) return
+  const url = new URL(window.location.href)
+  url.searchParams.set('build', availableRelease.value.build)
+  window.location.replace(url.href)
 }
 
 function save(action) {
@@ -320,45 +413,87 @@ function openResource(resource, download = false) {
 </script>
 
 <template>
-  <div class="learning" :class="{ 'learning--login': route.name === 'login' }">
-    <header class="workspace-nav">
-      <RouterLink class="brand" to="/course">
-        <span class="brand-mark" aria-hidden="true">法</span>
-        <span>法律实训<small>学生端</small></span>
+  <div class="learning" :class="{ 'with-tabs': primaryPage }">
+    <header class="app-bar">
+      <RouterLink v-if="!primaryPage" :to="parentPage" class="app-bar-back" aria-label="返回上级">
+        <van-icon name="arrow-left" aria-hidden="true" />
       </RouterLink>
-      <nav v-if="activePage" class="primary-nav" aria-label="学生端导航">
-        <RouterLink v-for="entry in navigation" :key="entry.to" :to="entry.to"
-          :class="{ selected: entry === activePage }" :aria-current="entry === activePage ? 'location' : undefined">
-          {{ entry.title }}
-        </RouterLink>
-      </nav>
-      <button v-if="activePage" class="logout secondary" type="button" :disabled="busy" @click="signOut">退出登录</button>
+      <h1>{{ appBarTitle }}</h1>
     </header>
     <main class="page workspace-main" :aria-busy="loading || busy">
-    <header v-if="pageHints[route.name]" class="page-banner">
-      <div><h1>{{ activePage.title }}</h1><p>{{ pageHints[route.name] }}</p></div>
-      <span v-if="unreadCount" class="banner-count">{{ unreadCount }} 条未读</span>
+    <header v-if="route.name === 'courses'" class="page-banner page-banner--courses">
+      <div>
+        <h2>法律实训</h2>
+        <p>查看课程任务与学习资料</p>
+      </div>
     </header>
+    <p v-if="unreadCount" class="unread-summary">{{ unreadCount }} 条未读通知</p>
     <p v-if="error" class="card error" role="alert">{{ error }}</p>
     <p v-if="message" class="card" role="status">{{ message }}</p>
     <p v-if="loading" class="card" role="status">加载中…</p>
-    <form v-if="route.name === 'login'" class="card fields" @submit.prevent="signIn">
-      <h1>登录学生端</h1>
-      <label>登录账号 <input v-model.trim="login.username" autocomplete="username" required></label>
-      <label>密码 <input v-model="login.password" type="password" autocomplete="current-password" required></label>
-      <label v-if="captcha?.captchaEnabled">验证码
-        <img :src="'data:image/png;base64,' + captcha.img" alt="登录验证码">
-        <input v-model.trim="login.code" autocomplete="off" required>
+    <section v-if="route.name === 'profile'" aria-label="个人资料">
+      <header class="page-banner">
+        <RouterLink class="profile-avatar" to="/profile/avatar" aria-label="更换头像">
+          <img v-if="avatarSource" :src="avatarSource" alt="" @error="avatarImageFailed">
+          <van-icon v-else name="manager" aria-hidden="true" />
+          <span class="avatar-edit"><van-icon name="photograph" aria-hidden="true" /></span>
+        </RouterLink>
+        <div>
+          <h2 v-if="data" class="profile-name">{{ data.userName || data.nickName }}</h2>
+          <p v-if="data?.nickName && data.userName && data.nickName !== data.userName">{{ data.nickName }}</p>
+        </div>
+      </header>
+      <div class="card profile-card">
+        <RouterLink v-for="entry in profileLinks" :key="entry.to" class="profile-link" :to="entry.to">
+          <van-icon :name="entry.icon" aria-hidden="true" />
+          <span>{{ entry.title }}</span>
+          <small v-if="entry.to === '/profile/version'" class="muted">v{{ release.version }}</small>
+          <van-icon name="arrow" aria-hidden="true" />
+        </RouterLink>
+        <button class="logout secondary" type="button" :disabled="busy" @click="signOut">退出登录</button>
+      </div>
+    </section>
+    <section v-else-if="route.name === 'avatar'" class="avatar-page" aria-label="头像预览与上传">
+      <div class="card avatar-panel">
+        <div class="avatar-preview">
+          <img v-if="avatarSource" :src="avatarSource" :alt="avatarDraft ? '新头像预览' : '当前头像'" @error="avatarImageFailed">
+          <van-icon v-else name="manager" role="img" aria-label="默认头像" />
+        </div>
+        <p class="muted">{{ avatarDraft ? '头像预览' : '当前头像' }}</p>
+      </div>
+      <input ref="avatarInput" hidden type="file" accept=".jpg,.jpeg,.png,.gif,.bmp" @change="chooseAvatar">
+      <div class="avatar-actions">
+        <button class="secondary" type="button" :disabled="busy" @click="avatarInput.click()">
+          {{ avatarDraft ? '重新选择' : '从相册选择' }}
+        </button>
+        <button v-if="avatarDraft" type="button" :disabled="busy" @click="saveAvatar">{{ busy ? '上传中…' : '保存头像' }}</button>
+      </div>
+    </section>
+    <form v-else-if="route.name === 'feedback'" class="card fields" @submit.prevent="submitFeedback">
+      <label>反馈内容
+        <textarea v-model="feedbackText" rows="5" maxlength="1000" required :disabled="busy"
+          placeholder="描述你遇到的问题或希望改进的地方" />
       </label>
-      <button :disabled="busy || loading || !captcha">登录</button>
+      <small class="muted">{{ feedbackText.length }} / 1000</small>
+      <button :disabled="busy || !feedbackText.trim()">{{ busy ? '提交中…' : '提交反馈' }}</button>
     </form>
+    <section v-else-if="route.name === 'version'" class="card fields" aria-label="学生端版本">
+      <p class="account-row"><span>当前版本</span><strong>v{{ release.version }}</strong></p>
+      <p v-if="updateStatus" role="status">{{ updateStatus }}</p>
+      <button v-if="availableRelease" type="button" @click="applyUpdate">刷新到新版本</button>
+      <button v-else type="button" :disabled="busy" @click="checkUpdate">{{ busy ? '检查中…' : '检查更新' }}</button>
+    </section>
     <section v-else-if="data && route.name === 'courses'" aria-label="课程列表">
+      <div class="course-list-heading"><h2>课程列表</h2><span>{{ data.length }} 门</span></div>
       <p v-if="!data.length" class="card empty">暂无课程，课程发布并分配到你的班级后会显示在这里。</p>
       <div v-else class="course-grid">
         <RouterLink v-for="course in data" :key="course.courseId" :to="'/course/' + course.courseId" class="card course-card">
-          <h2>{{ course.courseName }}</h2>
-          <p v-if="course.intro">{{ course.intro }}</p>
-          <span class="course-cta">进入课程 <span aria-hidden="true">→</span></span>
+          <span class="course-icon"><van-icon name="records" aria-hidden="true" /></span>
+          <div class="course-copy">
+            <h3>{{ course.courseName }}</h3>
+            <p v-if="course.intro">{{ course.intro }}</p>
+          </div>
+          <van-icon name="arrow" class="course-arrow" aria-hidden="true" />
         </RouterLink>
       </div>
     </section>
@@ -448,7 +583,6 @@ function openResource(resource, download = false) {
       </section>
     </section>
     <section v-else-if="data && route.name === 'task'" class="card fields">
-      <RouterLink :to="'/course/' + data.task.courseId">返回课程</RouterLink>
       <h2>{{ data.task.title }}</h2>
       <p class="multiline">{{ data.task.requirement }}</p>
       <LinkedCases :endpoint="'/edu/learning/tasks/' + route.params.taskId + '/cases'" />
@@ -558,36 +692,79 @@ function openResource(resource, download = false) {
       </li></ul>
     </section>
     </main>
+    <nav v-if="primaryPage" class="primary-nav" aria-label="学生端导航">
+      <RouterLink v-for="entry in navigation" :key="entry.to" :to="entry.to"
+        :class="{ selected: entry === activePage }" :aria-current="entry === activePage ? 'location' : undefined">
+        <van-icon :name="entry.icon" aria-hidden="true" />
+        <span>{{ entry.title }}</span>
+      </RouterLink>
+    </nav>
   </div>
 </template>
 
 <style scoped>
 .learning {
-  display: grid;
-  grid-template-columns: 15rem minmax(0, 1fr);
+  width: 100%;
+  max-width: var(--lt-app-width);
+  min-height: 100vh;
   min-height: 100dvh;
-  background: #f2f6fc;
+  margin-inline: auto;
+  background: var(--lt-field);
+  box-shadow: 0 0 48px #21050466;
 }
-.workspace-nav {
+nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.app-bar {
   position: sticky;
   top: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  height: 100dvh;
-  padding: 1.6rem 1rem;
-  background: #102347;
-  color: #f2f6ff;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) 3rem;
+  align-items: center;
+  min-height: calc(3.4rem + var(--lt-safe-top));
+  padding-top: var(--lt-safe-top);
+  background: var(--lt-nav);
+  color: var(--lt-on-dark);
+  border-bottom: 1px solid #a15e45;
 }
-.brand { display: flex; align-items: center; gap: .75rem; padding: .35rem; color: inherit; font-size: 1.15rem; font-weight: 750; text-decoration: none; }
-.brand-mark { display: grid; place-items: center; width: 2.7rem; height: 2.7rem; border-radius: .75rem; background: #d7e8ff; color: #12386e; }
-.brand small { display: block; color: #b7c9e9; font-size: .75rem; font-weight: 500; }
-nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
-.primary-nav { flex-direction: column; align-items: stretch; margin-top: 2.4rem; }
-.primary-nav a { padding: .75rem 1rem; border-radius: .65rem; color: #c8d8f3; text-decoration: none; font-weight: 650; }
-.primary-nav a:hover, .primary-nav .selected { color: white; background: #27497c; }
-.workspace-main { width: 100%; max-width: 78rem; margin-inline: auto; padding: clamp(1rem, 4vw, 3rem); }
-.workspace-main .card { margin: 0 0 1rem; padding: clamp(1rem, 2.7vw, 1.65rem); border: 1px solid #dce6f4; box-shadow: 0 4px 16px #1d3c6610; }
+.app-bar h1 { grid-column: 2; margin: 0; text-align: center; font-size: 1.13rem; letter-spacing: .04em; }
+.app-bar-back {
+  grid-column: 1; grid-row: 1; display: grid; place-items: center;
+  min-height: 3rem; color: inherit; text-decoration: none; font-size: 1.25rem;
+}
+.primary-nav {
+  position: fixed;
+  z-index: 5;
+  inset: auto 0 0;
+  width: min(100%, var(--lt-app-width));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .25rem;
+  margin-inline: auto;
+  padding: .4rem .35rem calc(.4rem + var(--lt-safe-bottom));
+  background: var(--lt-nav);
+  border-top: 1px solid #a15e45;
+  box-shadow: 0 -4px 18px #551c1414;
+}
+.primary-nav a {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: .18rem;
+  min-height: 3.35rem;
+  padding: .3rem .1rem;
+  border-radius: var(--lt-radius);
+  color: var(--lt-on-dark-muted);
+  text-align: center;
+  text-decoration: none;
+  font-size: .8rem;
+  font-weight: 650;
+}
+.primary-nav a:hover, .primary-nav .selected { background: var(--lt-active); color: var(--lt-on-dark); }
+.primary-nav .selected { box-shadow: inset 0 0 0 1px #c080507d; }
+.primary-nav .van-icon { font-size: 1.45rem; }
+.workspace-main { padding: 1rem 1rem calc(1.25rem + var(--lt-safe-bottom)); overflow-wrap: anywhere; }
+.with-tabs .workspace-main { padding-bottom: calc(5rem + var(--lt-safe-bottom)); }
+.workspace-main .card { margin: 0 0 1rem; padding: 1rem; border: 1px solid var(--lt-border); box-shadow: 0 4px 16px #551c1414; }
 .page-banner {
   display: flex;
   justify-content: space-between;
@@ -595,41 +772,84 @@ nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
   flex-wrap: wrap;
   gap: 1rem;
   margin-bottom: 1.35rem;
-  padding: clamp(1.25rem, 4vw, 2.6rem);
-  color: white;
-  background: linear-gradient(112deg, #132d59, #245594);
-  border-radius: 1rem;
+  padding: 1.25rem;
+  color: var(--lt-on-dark);
+  background-color: var(--lt-nav);
+  background-image: linear-gradient(112deg, var(--lt-nav), var(--lt-active));
+  border-radius: var(--lt-card-radius);
+}
+.page-banner--courses {
+  min-height: clamp(7.5rem, 33vw, 9.5rem);
+  background-image: linear-gradient(100deg, #3d100ef5 6%, #4f1510df 53%, #5e1a1450),
+    url('./assets/exhibition-hall.webp');
+  background-position: center, center 55%;
+  background-size: cover;
+  background-repeat: no-repeat;
 }
 h1, h2, h3 { line-height: 1.3; margin: 0; }
-h1 { font-size: clamp(1.65rem, 4vw, 2.45rem); }
+h1 { font-size: 1.85rem; }
 h2 { font-size: 1.2rem; }
-.page-banner p { color: #e1ecff; margin: .5rem 0 0; }
-.banner-count { padding: .35rem .8rem; border-radius: 2rem; background: #ffffff20; }
-.course-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
-.course-grid .course-card { display: flex; flex-direction: column; min-height: 11rem; margin: 0; text-decoration: none; color: inherit; }
-.course-grid .course-card:hover { border-color: #6a98d5; }
-.course-card p { color: var(--lt-sub); }
-.course-cta { color: #1756a6; margin-top: auto; padding-top: .7rem; font-weight: 700; }
-.notification.unread { border-inline-start: .25rem solid #3774c4; }
+.page-banner p { color: var(--lt-on-dark-muted); margin: .5rem 0 0; }
+.page-banner--courses h2 { font: 700 1.6rem/1.2 "Songti SC", SimSun, serif; }
+.unread-summary { color: var(--lt-sub); margin: 0 0 .75rem; }
+.course-list-heading { display: flex; justify-content: space-between; align-items: center; margin: 0 .15rem .65rem; }
+.course-list-heading span { color: var(--lt-sub); font-size: .84rem; }
+.course-grid { border: 1px solid var(--lt-border); border-radius: var(--lt-card-radius); background: var(--lt-card); }
+.course-grid .course-card {
+  display: grid; grid-template-columns: 2.7rem minmax(0, 1fr) 1rem; align-items: center; gap: .7rem;
+  min-height: 5.25rem; margin: 0; padding: .8rem; border: 0; box-shadow: none;
+  border-radius: var(--lt-card-radius); background: transparent; text-decoration: none; color: inherit;
+}
+.course-grid .course-card + .course-card { border-top: 1px solid var(--lt-border); border-radius: 0 0 var(--lt-card-radius) var(--lt-card-radius); }
+.course-grid .course-card:hover { background: var(--lt-tint); }
+.course-icon {
+  display: grid; place-items: center; width: 2.7rem; aspect-ratio: 1; border-radius: .78rem;
+  background: var(--lt-tint); color: var(--lt-primary); font-size: 1.3rem;
+}
+.course-copy h3 { font-size: .98rem; }
+.course-copy p { margin: .28rem 0 0; color: var(--lt-sub); font-size: .84rem; }
+.course-arrow { color: var(--lt-primary); }
+.notification.unread { border-inline-start: .25rem solid var(--lt-active); }
 .notification-title { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; }
-.unread-label { background: #e7f0ff; color: #174b8b; padding: .15rem .55rem; border-radius: 2rem; font-size: .8rem; }
+.unread-label { background: var(--lt-tint); color: var(--lt-primary); padding: .15rem .55rem; border-radius: 2rem; font-size: .8rem; }
 .muted, .empty { color: var(--lt-sub); }
 .empty { text-align: center; padding-block: 1rem; }
 .record-list { list-style: none; padding: 0; margin: .7rem 0 0; }
-.record-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .85rem; border-radius: .65rem; background: #f2f6fc; }
+.record-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .85rem; border-radius: var(--lt-radius); background: var(--lt-field); }
 .record-list form { flex-basis: 100%; }
-.record-list .muted, .score-value { margin-inline-start: auto; }
-.score-value { font-size: 1.35rem; color: #174b8b; }
-.workspace-main a { color: #1756a6; text-underline-offset: .2em; }
+.record-list .muted { flex-basis: 100%; }
+.score-value { margin-inline-start: auto; }
+.score-value { font-size: 1.35rem; color: var(--lt-primary); }
+.workspace-main a { color: var(--lt-primary); text-underline-offset: .2em; }
 .fields, label { display: grid; gap: .65rem; }
-input, textarea, select, button { font: inherit; padding: .55rem .75rem; border-radius: .55rem; }
-input, textarea, select { min-width: 0; border: 1px solid #b8c8dd; background: white; color: inherit; }
-button { min-height: 2.5rem; border: 1px solid transparent; background: #1956a2; color: white; cursor: pointer; }
-button:hover:enabled { filter: brightness(1.12); }
+input, textarea, select, button { font: inherit; padding: .55rem .75rem; border-radius: var(--lt-radius); }
+input, textarea, select { min-width: 0; max-width: 100%; border: 1px solid var(--lt-border); background: var(--lt-field); color: inherit; font-size: 16px; }
+button { min-height: 2.75rem; border: 1px solid transparent; background: var(--lt-primary); color: var(--lt-on-dark); cursor: pointer; }
+button:not(.secondary):hover:enabled { background: var(--lt-primary-hover); }
 button:disabled { cursor: default; opacity: .58; }
-.secondary { background: #eaf2ff; color: #174b8b; border-color: #d2e2fa; }
-.logout { margin-top: auto; }
-:is(a, button, input, textarea, select):focus-visible { outline: 3px solid #6a9de0; outline-offset: 3px; }
+.secondary { background: var(--lt-tint); color: var(--lt-primary); border-color: var(--lt-border); }
+.profile-avatar {
+  position: relative; display: grid; place-items: center; flex: none; width: 4rem; height: 4rem; padding: 0;
+  border: 2px solid var(--lt-on-dark-muted); border-radius: 50%; background: var(--lt-badge); color: var(--lt-primary); font-size: 2rem;
+}
+.profile-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.profile-avatar:focus-visible { outline-color: var(--lt-on-dark); }
+.avatar-edit { position: absolute; right: -.2rem; bottom: -.15rem; display: grid; place-items: center; width: 1.45rem; height: 1.45rem; border-radius: 50%; background: var(--lt-primary); color: var(--lt-on-dark); font-size: .8rem; border: 1px solid var(--lt-on-dark); }
+.avatar-panel { display: grid; justify-items: center; gap: .8rem; }
+.workspace-main .avatar-panel { padding: 2rem 1rem 1.5rem; }
+.avatar-panel p { margin: 0; }
+.avatar-preview { display: grid; place-items: center; width: min(100%, 13rem); aspect-ratio: 1; overflow: hidden; border-radius: 50%; background: var(--lt-badge); color: var(--lt-primary); font-size: 5rem; }
+.avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-actions { display: flex; gap: .75rem; }
+.avatar-actions button { flex: 1; }
+.profile-name { font-size: 1.6rem; }
+.page-banner div:has(.profile-name) { flex: 1; min-width: 0; }
+.account-row { display: flex; justify-content: space-between; gap: .75rem; margin: 0 0 1rem; }
+.profile-link { display: flex; align-items: center; gap: .75rem; min-height: 3rem; padding: .65rem .5rem; border-bottom: 1px solid var(--lt-border); text-decoration: none; }
+.profile-link span { flex: 1; }
+.profile-link:hover { background: var(--lt-field); }
+.logout { width: 100%; margin-top: 1rem; }
+:is(a, button, input, textarea, select):focus-visible { outline: 3px solid var(--lt-focus); outline-offset: 3px; }
 textarea { width: 100%; }
 img { max-width: 100%; }
 video, audio, iframe { width: 100%; }
@@ -637,22 +857,4 @@ iframe { min-height: 24rem; }
 li { margin-block: .5rem; }
 .multiline { white-space: pre-wrap; overflow-wrap: anywhere; }
 .error { color: var(--lt-danger); }
-.learning--login { display: block; background: #eaf1fc; }
-.learning--login .workspace-nav { position: static; min-height: auto; height: auto; align-items: center; }
-.learning--login .workspace-main { max-width: 32rem; }
-.learning--login label img { display: block; }
-@media (max-width: 700px) {
-  .learning { display: block; }
-  .workspace-nav { position: static; min-height: auto; height: auto; flex-direction: row; align-items: center; justify-content: space-between; padding: .7rem 1rem; }
-  .logout { margin-top: 0; }
-  .primary-nav {
-    position: fixed; z-index: 5; inset: auto 0 0;
-    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .25rem;
-    margin: 0; padding: .4rem .35rem calc(.4rem + var(--lt-safe-bottom));
-    background: #102347; text-align: center;
-  }
-  .primary-nav a { padding: .6rem .15rem; font-size: .85rem; }
-  .workspace-main { padding-bottom: calc(4.5rem + var(--lt-safe-bottom)); }
-  .record-list .muted { margin-inline-start: 0; }
-}
 </style>

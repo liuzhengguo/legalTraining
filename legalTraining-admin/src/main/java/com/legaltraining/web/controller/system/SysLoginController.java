@@ -63,6 +63,14 @@ public class SysLoginController
         return ajax;
     }
 
+    @PostMapping("/edu/student/login")
+    public AjaxResult studentLogin(@RequestBody LoginBody loginBody)
+    {
+        AjaxResult ajax = AjaxResult.success();
+        ajax.put(Constants.TOKEN, loginService.studentLogin(loginBody.getUsername(), loginBody.getPassword()));
+        return ajax;
+    }
+
     /**
      * 获取用户信息
      * 

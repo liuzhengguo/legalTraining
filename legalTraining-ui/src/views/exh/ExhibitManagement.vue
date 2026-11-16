@@ -12,7 +12,7 @@
       <el-table-column label="开放级别">
         <template slot-scope="{ row }">{{ ['未开放','内部开放','对外开放'][isZone ? row.openLevel : row.viewLevel] }}</template>
       </el-table-column>
-      <el-table-column label="操作" min-width="220">
+      <el-table-column label="操作" :width="isZone ? 170 : 270" align="right" fixed="right">
         <template slot-scope="{ row }">
           <el-button v-if="mode === 'item'" v-hasPermi="['exh:item:list']" type="text" @click="$refs.caseReferences.show(row.itemId)">关联案例</el-button>
           <el-button v-if="mode !== 'publish'" type="text" @click="edit(row)">编辑</el-button>
@@ -36,6 +36,7 @@
           <el-form-item label="展区名称"><el-input v-model.trim="form.zoneName" maxlength="100" /></el-form-item>
           <el-form-item label="全景图">
             <el-input v-model.trim="form.panoramaUrl" placeholder="2:1 全景图 HTTPS 地址或平台素材路径" maxlength="500" />
+            <input type="file" accept="image/png,image/jpeg,image/webp" :disabled="saving" @change="upload($event, 'panoramaUrl')" />
           </el-form-item>
           <el-form-item label="简介"><el-input v-model="form.intro" type="textarea" maxlength="2000" /></el-form-item>
           <el-form-item label="版式">
@@ -101,7 +102,7 @@
         <el-table-column prop="version" label="版本" />
         <el-table-column prop="operateTime" label="发布时间" />
         <el-table-column prop="sourceVersion" label="回退来源版本" />
-        <el-table-column label="操作">
+        <el-table-column label="操作" width="130" fixed="right" align="right">
           <template slot-scope="{ row }"><el-button type="text" :disabled="saving" @click="revert(row)">回退并发布</el-button></template>
         </el-table-column>
       </el-table>
@@ -146,16 +147,34 @@ export default {
       this.form = row ? { ...row } : this.isZone ? { layout: 'grid', routeNo: 0 } : {}
       this.editing = true
     },
-    async upload(event) {
+    async upload(event, field = 'cover') {
       const file = event.target.files[0]
       event.target.value = ''
       if (!file || this.saving) return
       const data = new FormData()
       data.append('file', file)
       this.saving = true
+      const form = this.form
       try {
+        if (field === 'panoramaUrl') {
+          const source = URL.createObjectURL(file)
+          try {
+            const image = new Image()
+            image.src = source
+            await image.decode()
+            if (Math.abs(image.naturalWidth / image.naturalHeight - 2) > 0.02) {
+              this.$modal.msgError('请选择宽高比为 2:1 的等距柱状全景图')
+              return
+            }
+          } catch {
+            this.$modal.msgError('无法读取这张全景图，请检查图片文件')
+            return
+          } finally {
+            URL.revokeObjectURL(source)
+          }
+        }
         const result = await request({ url: '/common/upload', method: 'post', data, headers: { repeatSubmit: false } })
-        this.$set(this.form, 'cover', result.fileName)
+        this.$set(form, field, result.fileName)
       } finally { this.saving = false }
     },
     async perform(options, message) {

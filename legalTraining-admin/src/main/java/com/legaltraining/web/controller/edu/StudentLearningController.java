@@ -7,6 +7,9 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -17,7 +20,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -107,6 +112,16 @@ public class StudentLearningController extends BaseController
         return success(jdbc.queryForList("select id,event_code as eventCode,title,content,biz_type as bizType,"
                 + "biz_id as bizId,is_read as isRead,send_time as sendTime from ops_notification "
                 + "where receiver_id=? order by send_time desc,id desc limit 100", getUserId()));
+    }
+
+    public record FeedbackForm(@NotBlank @Size(max = 1000) String content) {}
+
+    @PostMapping("/feedback")
+    public AjaxResult feedback(@Valid @RequestBody FeedbackForm form)
+    {
+        jdbc.update("insert into edu_student_feedback(user_id,content) values(?,?)",
+                getUserId(), form.content().strip());
+        return success();
     }
 
     @PutMapping("/notifications/{id}/read")

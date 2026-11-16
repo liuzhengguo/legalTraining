@@ -14,7 +14,7 @@
       <el-table-column label="状态">
         <template slot-scope="{ row }">{{ states[row.status] }}<span v-if="row.isCurrent === '1'"> · 当前</span></template>
       </el-table-column>
-      <el-table-column label="操作" min-width="220">
+      <el-table-column label="操作" fixed="right" align="right" width="220">
         <template slot-scope="{ row }">
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:term:edit']" type="text" @click="openEditor(row)">编辑</el-button>
           <el-button v-if="row.status !== 2 && row.isCurrent !== '1'" v-hasPermi="['edu:term:switch']" type="text" @click="switchTo(row)">设为当前学期</el-button>
@@ -25,7 +25,11 @@
     <pagination v-show="total > 0" :total="total" :page.sync="query.pageNum" :limit.sync="query.pageSize" @pagination="load" />
     <el-dialog :title="form.termId ? '编辑学期' : '新增学期'" :visible.sync="editing" append-to-body width="min(540px, 94vw)">
       <el-form label-width="110px" @submit.native.prevent="save">
-        <el-form-item label="学年" required><el-input v-model.trim="form.schoolYear" maxlength="16" placeholder="例如 2026-2027" /></el-form-item>
+        <el-form-item label="学年" required>
+          <el-select id="term-school-year" v-model="form.schoolYear" filterable placeholder="选择学年" style="width: 100%">
+            <el-option v-for="year in schoolYears" :key="year" :label="year" :value="year" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="学期" required>
           <el-select v-model="form.termNo">
             <el-option label="第一学期" :value="1" /><el-option label="第二学期" :value="2" /><el-option label="短学期" :value="3" />
@@ -48,6 +52,18 @@ export default {
   data() {
     return { query: { pageNum: 1, pageSize: 10, termName: '' }, rows: [], total: 0,
       form: {}, states: ['筹备', '进行中', '已归档'], editing: false, saving: false, loading: false }
+  },
+  computed: {
+    schoolYears() {
+      const now = new Date()
+      const start = now.getFullYear() - (now.getMonth() < 8 ? 1 : 0)
+      const nearby = Array.from({ length: 16 }, (_, index) => {
+        const year = start + 5 - index
+        return `${year}-${year + 1}`
+      })
+      const existing = this.rows.map(row => row.schoolYear).concat(this.form.schoolYear)
+      return Array.from(new Set([...nearby, ...existing.filter(Boolean)])).sort().reverse()
+    }
   },
   created() { this.load() },
   methods: {

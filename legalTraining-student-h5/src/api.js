@@ -1,4 +1,11 @@
 const base = import.meta.env.VITE_API_BASE || '/dev-api'
+
+export function profileImageUrl(path) {
+  if (typeof path !== 'string') return ''
+  if (!/^\/profile\/[\w./-]+$/.test(path) || path.includes('..')) return ''
+  return base.replace(/\/$/, '') + path
+}
+
 export async function request(path, { method = 'GET', body, authenticated = true, binary = false } = {}) {
   const headers = {}
   const token = localStorage.getItem('lt_token')

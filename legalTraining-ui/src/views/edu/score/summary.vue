@@ -14,7 +14,7 @@
         <el-table-column label="类型"><template slot-scope="{ row }">{{ exportTypes[row.export_type] }}</template></el-table-column>
         <el-table-column prop="row_count" label="行数" />
         <el-table-column label="状态"><template slot-scope="{ row }">{{ ['生成中', '已完成', '失败'][row.status] }}</template></el-table-column>
-        <el-table-column label="操作"><template slot-scope="{ row }">
+        <el-table-column label="操作" width="90" fixed="right" align="right"><template slot-scope="{ row }">
           <el-button v-if="row.status === 1" type="text" @click="downloadExport(row.id, row.export_type)">下载</el-button>
         </template></el-table-column>
       </el-table>

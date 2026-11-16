@@ -59,7 +59,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
     
     <select id="selectDeptById" parameterType="Long" resultMap="SysDeptResult">
-		select d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.phone, d.email, d.status,
+		select d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.phone, d.email, d.status, d.del_flag,
 			(select dept_name from sys_dept where dept_id = d.parent_id) parent_name
 		from sys_dept d
 		where d.dept_id = #{deptId}

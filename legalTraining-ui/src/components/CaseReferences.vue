@@ -19,7 +19,7 @@
       <el-table v-else-if="searched" :data="results" empty-text="未找到匹配的案例">
         <el-table-column prop="title" label="案例" />
         <el-table-column prop="source" label="来源" />
-        <el-table-column label="操作" width="130">
+        <el-table-column label="操作" fixed="right" align="right" width="130">
           <template slot-scope="{row}">
             <el-button type="text" @click="view(row)">详情</el-button>
             <el-button type="text" :disabled="saving || linked.some(item => item.id === row.id)" @click="attach(row)">关联</el-button>

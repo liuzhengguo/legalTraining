@@ -180,8 +180,7 @@ public class EduGroupServiceImpl implements IEduGroupService
         {
             if (!crossClass && eduGroupMapper.countClassStudent(classId, userId) == 0)
             {
-                throw new ServiceException("学生 user_id=" + userId + " 不属于该班，如需跨班分组请先开启参数 "
-                        + CFG_CROSS_CLASS);
+                throw new ServiceException("有成员已不属于所选班级，请重新选择成员");
             }
             EduGroupMember m = new EduGroupMember();
             m.setGroupId(eduGroup.getGroupId());

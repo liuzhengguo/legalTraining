@@ -121,8 +121,8 @@ export default {
 .portal {
   min-height: calc(100vh - 84px);
   padding: clamp(18px, 3.1vw, 44px);
-  background: #f3f5f8;
-  color: #202b3c;
+  background: #fcf1e3;
+  color: #461d16;
 }
 .portal-inner { max-width: 1320px; margin: 0 auto; }
 .portal-hero {
@@ -136,40 +136,40 @@ export default {
   padding: clamp(24px, 4vw, 50px);
   border-radius: 16px;
   color: #fff;
-  background: linear-gradient(90deg, #18283e 6%, #18283ef2 37%, #18283e46 100%),
-    #18283e url("../../assets/images/courtroom.webp") right 62% / auto 190% no-repeat;
-  box-shadow: 0 8px 26px #18283e14;
+  background: linear-gradient(90deg, #511913 6%, #4b1612f2 37%, #651e1446 100%),
+    #511913 var(--lt-exhibition-hall) right 51% / auto 160% no-repeat;
+  box-shadow: 0 8px 26px #551b141a;
 }
 .portal-hero-content { min-width: 0; }
 .portal-term { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; color: #f4d5aa; font-size: 13px; }
 .portal-hero h1 { margin: 0; font-size: clamp(25px, 3vw, 44px); font-weight: 750; letter-spacing: -.025em; overflow-wrap: anywhere; }
-.portal-dept { margin: 12px 0 0; color: #d8e0ec; }
-.hero-action { display: inline-flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid #ffffff58; border-radius: 8px; background: #17273dd9; font-size: 14px; }
-.hero-action:hover { background: #253e5d; }
+.portal-dept { margin: 12px 0 0; color: #f4d9b9; }
+.hero-action { display: inline-flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid #ffffff58; border-radius: 8px; background: #5c1d16e6; font-size: 14px; }
+.hero-action:hover { background: #842d22; }
 .hero-action strong { color: #f4d5aa; font-size: 19px; }
 .portal-section { margin-top: 28px; }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
 .section-title h2 { margin: 0; font-size: 19px; font-weight: 750; }
-.section-title a { color: #345884; font-size: 13px; }
+.section-title a { color: #963b2e; font-size: 13px; }
 .todo-grid, .module-grid { display: grid; gap: 14px; }
 .todo-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr)); }
 .module-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); }
-.todo-card, .module-card { border: 1px solid #e1e6ec; border-radius: 12px; background: white; box-shadow: 0 3px 12px #17283e07; }
-.todo-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 11px; padding: 18px; color: #536174; font-size: 14px; }
+.todo-card, .module-card { border: 1px solid #e8d2bc; border-radius: 12px; background: #fff9ef; box-shadow: 0 3px 12px #551c140b; }
+.todo-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 11px; padding: 18px; color: #76574a; font-size: 14px; }
 .todo-card:hover { border-color: var(--tone); }
-.todo-card strong { grid-column: 2; font-size: 28px; color: #202b3c; font-variant-numeric: tabular-nums; line-height: 1; }
-.tone-blue { --tone: #355d8b; --tint: #ebf2fb; }
-.tone-teal { --tone: #23655c; --tint: #e8f5f0; }
+.todo-card strong { grid-column: 2; font-size: 28px; color: #461d16; font-variant-numeric: tabular-nums; line-height: 1; }
+.tone-blue { --tone: #8b3024; --tint: #f8e5d8; }
+.tone-teal { --tone: #9a4f2d; --tint: #f8e8d9; }
 .tone-amber { --tone: #8a5526; --tint: #fbf0e3; }
-.tone-violet { --tone: #66528b; --tint: #f1edf9; }
+.tone-violet { --tone: #7d3d32; --tint: #f4e2d7; }
 .portal-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9px; background: var(--tint); color: var(--tone); font-size: 19px; flex: none; }
 .todo-card .portal-icon { grid-row: span 2; }
 .module-card { padding: 20px; }
 .module-heading { display: flex; align-items: center; gap: 11px; margin-bottom: 13px; }
 .module-heading h3 { margin: 0; font-size: 17px; font-weight: 700; }
-.module-card nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; border-top: 1px solid #eaf0f6; padding: 6px 2px; color: #4a596d; font-size: 14px; }
+.module-card nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; border-top: 1px solid #efdfcf; padding: 6px 2px; color: #724c3f; font-size: 14px; }
 .module-card nav a:hover { color: var(--tone); background: var(--tint); }
-.portal a:focus-visible { outline: 2px solid #345884; outline-offset: 3px; }
+.portal a:focus-visible { outline: 2px solid #963b2e; outline-offset: 3px; }
 .portal-error { margin-top: 22px; }
 @media (max-width: 540px) {
   .portal-hero { min-height: 175px; background-position: right center; }

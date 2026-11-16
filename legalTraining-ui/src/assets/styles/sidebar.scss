@@ -120,15 +120,15 @@
           content: '';
           position: absolute;
           inset: 0;
-          background-color: var(--current-color-dark-bg, rgba(64, 158, 255, 0.2));
-          border-right: 3px solid var(--current-color, #409eff);
+          background-color: rgba(245, 201, 143, .14);
+          border-right: 3px solid #e2ac75;
           pointer-events: none;
           z-index: 1;
         }
       }
 
       .el-submenu.is-active > .el-submenu__title {
-        color: var(--current-color, #409eff) !important;
+        color: #ffe3aa !important;
       }
 
       .el-menu-item:not(.is-active),
@@ -147,7 +147,7 @@
         }
 
         &:hover::before {
-          background-color: var(--current-color-dark-bg, rgba(64, 158, 255, 0.2));
+          background-color: rgba(245, 201, 143, .1);
         }
       }
     }

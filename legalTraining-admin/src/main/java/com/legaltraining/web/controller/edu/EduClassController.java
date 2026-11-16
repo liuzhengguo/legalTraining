@@ -1,6 +1,7 @@
 package com.legaltraining.web.controller.edu;
 
 import java.util.List;
+import java.util.Map;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,13 +16,23 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.legaltraining.business.edu.domain.EduClass;
+import com.legaltraining.business.edu.domain.EduMajor;
+import com.legaltraining.business.edu.domain.EduTerm;
 import com.legaltraining.business.edu.service.IEduClassService;
+import com.legaltraining.business.edu.service.IEduMajorService;
+import com.legaltraining.business.edu.service.IEduTermService;
 import com.legaltraining.common.annotation.Log;
 import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
+import com.legaltraining.common.core.domain.entity.SysDept;
+import com.legaltraining.common.core.domain.entity.SysRole;
+import com.legaltraining.common.core.domain.entity.SysUser;
 import com.legaltraining.common.core.page.TableDataInfo;
 import com.legaltraining.common.enums.BusinessType;
 import com.legaltraining.common.utils.poi.ExcelUtil;
+import com.legaltraining.system.service.ISysDeptService;
+import com.legaltraining.system.service.ISysRoleService;
+import com.legaltraining.system.service.ISysUserService;
 
 /**
  * 班级（E1 平台管理 / MG-01-02）
@@ -32,6 +43,53 @@ public class EduClassController extends BaseController
 {
     @Autowired
     private IEduClassService eduClassService;
+
+    @Autowired
+    private IEduTermService termService;
+
+    @Autowired
+    private IEduMajorService majorService;
+
+    @Autowired
+    private ISysDeptService deptService;
+
+    @Autowired
+    private ISysRoleService roleService;
+
+    @Autowired
+    private ISysUserService userService;
+
+    @PreAuthorize("@ss.hasAnyPermi('edu:class:list,edu:class:add,edu:class:edit')")
+    @GetMapping("/editor-options")
+    public AjaxResult editorOptions()
+    {
+        SysDept departments = new SysDept();
+        departments.setStatus("0");
+        EduMajor majors = new EduMajor();
+        majors.setStatus("0");
+        SysRole teacherRole = new SysRole();
+        teacherRole.setRoleKey("teacher");
+        teacherRole.setStatus("0");
+        List<?> teachers = roleService.selectRoleList(teacherRole).stream()
+                .filter(role -> "teacher".equals(role.getRoleKey()))
+                .flatMap(role -> {
+                    SysUser query = new SysUser();
+                    query.setRoleId(role.getRoleId());
+                    return userService.selectAllocatedList(query).stream();
+                })
+                .filter(user -> "0".equals(user.getStatus()))
+                .map(user -> Map.of("value", user.getUserId(), "label", user.getNickName() + "（" + user.getUserName() + "）"))
+                .toList();
+        return success(Map.of(
+                "termId", termService.selectEduTermList(new EduTerm()).stream()
+                        .filter(term -> !Integer.valueOf(2).equals(term.getStatus()))
+                        .map(term -> Map.of("value", term.getTermId(), "label", term.getTermName())).toList(),
+                "deptId", deptService.selectDeptList(departments).stream()
+                        .map(dept -> Map.of("value", dept.getDeptId(), "label", dept.getDeptName())).toList(),
+                "majorId", majorService.selectEduMajorList(majors).stream()
+                        .map(major -> Map.of("value", major.getMajorId(), "label", major.getMajorName(), "deptId", major.getDeptId())).toList(),
+                "headTeacher", teachers));
+    }
 
     @PreAuthorize("@ss.hasPermi('edu:class:list')")
     @GetMapping("/list")

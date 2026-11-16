@@ -15,7 +15,7 @@
       <el-table-column label="完成方式"><template slot-scope="{ row }">{{ modes[row.finishMode] }}</template></el-table-column>
       <el-table-column label="状态"><template slot-scope="{ row }">{{ statuses[row.status] }}</template></el-table-column>
       <el-table-column prop="deadline" label="截止时间" />
-      <el-table-column label="操作" min-width="240">
+      <el-table-column label="操作" fixed="right" align="right" width="340">
         <template slot-scope="{ row }">
           <el-button v-hasPermi="['edu:task:edit']" type="text" @click="$refs.caseReferences.show(row.taskId)">关联案例</el-button>
           <el-button type="text" @click="preview(row)">学生视角预览</el-button>

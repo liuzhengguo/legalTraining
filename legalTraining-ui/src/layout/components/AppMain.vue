@@ -56,7 +56,7 @@ export default {
   &:-webkit-full-screen,
   &:-moz-full-screen,
   &:-ms-fullscreen {
-    background: #fff;
+    background: #fffaf2;
     overflow-y: auto;
   }
 }

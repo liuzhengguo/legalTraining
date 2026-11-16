@@ -1,6 +1,7 @@
 package com.legaltraining.business.ops.service;
 
 import java.util.List;
+import java.util.Map;
 import com.legaltraining.business.ops.domain.OpsApp;
 import com.legaltraining.business.ops.domain.OpsAppApi;
 import com.legaltraining.business.ops.domain.OpsAppIp;
@@ -43,4 +44,7 @@ public interface IOpsAppService
     public void record(OpsCallLog log);
 
     public List<OpsCallLog> selectCallLogList(OpsCallLog query);
+
+    /** 调用日志异常汇总（OP-03-04） */
+    public Map<String, Object> selectLogSummary();
 }

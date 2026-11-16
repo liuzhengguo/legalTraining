@@ -1,6 +1,11 @@
 <template>
   <div>
   <BusinessRecords ref="records" :config="config">
+    <template #column-status="{ value }">
+      <el-tag v-if="String(value) === '0'" size="small" type="success" effect="dark">已启用</el-tag>
+      <el-tag v-else-if="String(value) === '1'" size="small" type="danger" effect="dark">已停用</el-tag>
+      <span v-else>—</span>
+    </template>
     <template #toolbar>
       <el-button v-hasPermi="['edu:student:import']" @click="importOpen = true">批量导入</el-button>
     </template>
@@ -55,7 +60,8 @@ export default {
         { key: 'classId', label: '班级 ID', required: true, number: true },
         { key: 'phonenumber', label: '手机号' }
       ],
-      columns: [{"key":"userId","label":"ID"},{"key":"userName","label":"登录账号"},{"key":"nickName","label":"姓名"},{"key":"studentNo","label":"学号"},{"key":"className","label":"班级"},{"key":"majorName","label":"专业"},{"key":"status","label":"状态"}]
+      columns: [{"key":"userId","label":"ID"},{"key":"userName","label":"登录账号"},{"key":"nickName","label":"姓名"},{"key":"studentNo","label":"学号"},{"key":"className","label":"班级"},{"key":"majorName","label":"专业"},
+        { key: 'status', label: '状态' }]
     } }
   },
   methods: {

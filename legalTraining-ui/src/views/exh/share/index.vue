@@ -22,7 +22,7 @@
       <el-table-column prop="channel" label="来源" />
       <el-table-column prop="shortCode" label="短码" />
       <el-table-column prop="createTime" label="创建时间" />
-      <el-table-column label="操作">
+      <el-table-column label="操作" width="150" fixed="right" align="right">
         <template slot-scope="{ row }">
           <el-button type="text" :disabled="busy" @click="createFor(row)">查看链接和二维码</el-button>
         </template>

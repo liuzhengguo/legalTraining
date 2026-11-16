@@ -74,7 +74,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="classId != null">class_id = #{classId},</if>
             <if test="taskId != null">task_id = #{taskId},</if>
             <if test="groupName != null and groupName != ''">group_name = #{groupName},</if>
-            <if test="leaderId != null">leader_id = #{leaderId},</if>
+            <choose>
+                <when test="leaderId != null">leader_id = #{leaderId},</when>
+                <when test="memberIds != null and memberIds.isEmpty()">leader_id = null,</when>
+            </choose>
             <if test="memberMin != null">member_min = #{memberMin},</if>
             <if test="memberMax != null">member_max = #{memberMax},</if>
             <if test="groupType != null">group_type = #{groupType},</if>

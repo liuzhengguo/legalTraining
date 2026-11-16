@@ -12,7 +12,7 @@
         <el-table-column label="回写状态">
           <template slot-scope="{row}">{{ row.callbackState == null ? '待审核' : callbacks[row.callbackState] }}</template>
         </el-table-column>
-        <el-table-column label="操作">
+        <el-table-column label="操作" width="155" fixed="right" align="right">
           <template slot-scope="{row}">
             <el-button v-hasPermi="['exh:audit:list']" type="text" @click="inspect(row)">{{ row.status === 1 ? '审核' : '查看' }}</el-button>
             <el-button v-if="row.status === 2 && row.callbackState === 1 && !row.itemId"

@@ -166,8 +166,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="appId != null">and l.app_id = #{appId}</if>
             <if test="apiCode != null and apiCode != ''">and l.api_code = #{apiCode}</if>
             <if test="httpStatus != null">and l.http_status = #{httpStatus}</if>
+            <if test="abnormalOnly != null and abnormalOnly">
+                and (l.http_status in (401, 403, 429) or l.http_status &gt;= 500)
+            </if>
         </where>
         order by l.id desc
+    </select>
+
+    <select id="selectLogSummary" resultType="java.util.LinkedHashMap">
+        select count(*) as total,
+               sum(case when http_status = 401 then 1 else 0 end) as unauthorized,
+               sum(case when http_status = 403 then 1 else 0 end) as forbidden,
+               sum(case when http_status = 429 then 1 else 0 end) as limited,
+               sum(case when http_status &gt;= 500 then 1 else 0 end) as serverError
+        from ops_call_log
     </select>
 
 </mapper>

@@ -14,7 +14,7 @@
       <el-table-column label="状态">
         <template slot-scope="{ row }">{{ statuses[row.status] }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="260">
+      <el-table-column label="操作" fixed="right" align="right" width="360" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="$refs.caseReferences.show(row.courseId)">关联案例</el-button>
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="openForm(row)">编辑</el-button>
@@ -190,3 +190,6 @@ export default {
   }
 }
 </script>
+<style>
+.nowrap-actions .cell { white-space: nowrap; }
+</style>

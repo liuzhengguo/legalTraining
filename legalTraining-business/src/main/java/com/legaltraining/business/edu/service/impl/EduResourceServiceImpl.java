@@ -1,9 +1,11 @@
 package com.legaltraining.business.edu.service.impl;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -256,6 +258,11 @@ public class EduResourceServiceImpl implements IEduResourceService
         {
             throw new ServiceException("上级分类不能选择自己");
         }
+        if (category.getParentId() != null && category.getParentId() != 0L
+                && isDescendant(category.getParentId(), category.getCategoryId()))
+        {
+            throw new ServiceException("上级分类不能选择当前分类的子分类");
+        }
         if (StringUtils.isNotEmpty(category.getCategoryName())
                 && eduResourceMapper.countCategoryByName(
                         category.getParentId() == null ? exist.getParentId() : category.getParentId(),
@@ -288,6 +295,27 @@ public class EduResourceServiceImpl implements IEduResourceService
     }
 
     // ---------- 内部 ----------
+
+    /** 判断 candidate 是否为 self 的子孙，防止分类层级调整时形成环 */
+    private boolean isDescendant(Long candidate, Long self)
+    {
+        Long cursor = candidate;
+        Set<Long> visited = new HashSet<>();
+        while (cursor != null && cursor != 0L && visited.add(cursor))
+        {
+            if (cursor.equals(self))
+            {
+                return true;
+            }
+            EduResourceCategory parent = eduResourceMapper.selectCategoryById(cursor);
+            if (parent == null)
+            {
+                return false;
+            }
+            cursor = parent.getParentId();
+        }
+        return false;
+    }
 
     private List<EduResourceCategory> buildTree(List<EduResourceCategory> all)
     {
