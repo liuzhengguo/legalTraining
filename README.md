@@ -87,7 +87,9 @@ legal-training:
 
 线上接入使用 HTTPS。提供方需要 Bearer 凭证时，在服务端配置 `legal-training.case-library.token`。对外列表及详情仍通过开放网关的 OP-02-08 签名授权，提供方异常时返回 `degrade: true`。
 
-已有业务库执行 `sql/v3_case_reference.sql`。教师可在课程、任务列表管理「关联案例」，展厅编辑可在展项列表管理。学生仅能查看有课程或任务访问权限的关联案例。公开展项以已发布版本为准，修改引用后随展项重新发布。访客端在案例库不可用时隐藏案例区。
+已有业务库依次执行 `sql/v3_case_reference.sql` 和 `sql/v3_local_case_library.sql`。教师在「教师工作室 → 案例库」新增和维护校内案例，再从课程或任务的「关联案例」选择。展项也可关联校内案例。配置了外部案例库的部署可在关联窗口切换来源。
+
+学生只能查看有权限的课程或任务下的关联案例。公开展项的引用以已发布版本为准，修改关联后需重新发布。归档校内案例会暂时隐藏其引用，恢复后可继续查看。
 
 ## 展厅全景与推荐推送
 
@@ -116,3 +118,8 @@ Windows 或 Linux 专用终端要执行系统重启，需在本机配置 `allowS
 ## 许可
 
 见 [LICENSE](LICENSE)。
+## 学生端法律助手
+
+在目标库依次执行 `sql/v3_legal_assistant.sql` 和 `sql/v3_legal_assistant_sessions.sql`。在后台 Java 服务的运行环境中设置 `ARK_API_KEY`，本地开发也可将该属性放在当前系统用户目录下的 `.legaltraining/ark.properties`。默认使用火山方舟接入点 `ep-20261116224921-kpbg8`，切换接入点时可设置 `ARK_MODEL_ENDPOINT`。
+
+重启 Java 服务后，学生端可在「法律助手」新建或继续历史会话。管理端通过「平台管理 → 法律助手记录」查看问答。

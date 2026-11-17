@@ -10,6 +10,7 @@ const routes = [
   { path: '/task/:taskId', component: Learning, name: 'task' },
   { path: '/score', component: Learning, name: 'score' },
   { path: '/achievements', component: Learning, name: 'achievements' },
+  { path: '/assistant', component: Learning, name: 'assistant' },
   { path: '/notifications', component: Learning, name: 'notifications' },
   { path: '/profile', component: Learning, name: 'profile' },
   { path: '/profile/avatar', component: Learning, name: 'avatar' },

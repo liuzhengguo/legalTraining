@@ -1,4 +1,6 @@
 <script setup>
+import LegalAssistant from './LegalAssistant.vue'
+import assistantAvatar from './assets/xiaolvfa-avatar.jpg'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showSuccessToast } from 'vant'
@@ -57,6 +59,15 @@ function galleryUrl(entry) {
 const achievementStatuses = ['待授权', '待审核', '审核通过', '审核驳回', '已撤回或拒绝', '已生成展项']
 const statuses = ['未提交', '草稿', '已提交', '已批阅', '已退回', '逾期未交', '任务取消']
 const lateStatuses = ['', '待审批', '已通过', '已驳回']
+function taskSubmissionAction(task) {
+  if (![1, 2].includes(Number(task.status))) return ''
+  const state = Number(task.submitStatus)
+  if (state === 4) return '查看重交'
+  if (![0, 1, 5].includes(state)) return ''
+  const deadline = task.deadline ? Date.parse(String(task.deadline).replace(' ', 'T')) : NaN
+  if (state === 5 || deadline < clock.value) return '查看补交'
+  return state === 1 ? '继续提交' : '去提交'
+}
 const navigation = [
   { to: '/course', title: '我的课程', icon: 'records', routes: ['courses', 'course', 'task'] },
   { to: '/score', title: '我的成绩', icon: 'chart-trending-o', routes: ['score'] },
@@ -92,7 +103,16 @@ const unreadCount = computed(() => route.name === 'notifications' && Array.isArr
   ? data.value.filter(entry => entry.isRead === '0').length : 0)
 const profilePageTitles = { notifications: '通知', feedback: '意见反馈', version: '版本更新' }
 const primaryPage = computed(() => navigation.some(entry => entry.routes[0] === route.name))
+const assistantPage = computed(() => route.name === 'assistant')
 const parentPage = computed(() => {
+  if (assistantPage.value) {
+    const from = route.query.from
+    if (typeof from === 'string' && from.startsWith('/') && !from.startsWith('//')) {
+      const destination = router.resolve(from)
+      if (navigation.some(entry => entry.routes.includes(destination.name))) return destination.fullPath
+    }
+    return '/course'
+  }
   if (route.name === 'task' && data.value?.task?.courseId) return '/course/' + data.value.task.courseId
   return activePage.value?.to || '/course'
 })
@@ -101,6 +121,7 @@ const appBarTitle = computed(() => {
   if (route.name === 'course') return '课程详情'
   if (route.name === 'task') return '实训任务'
   if (route.name === 'avatar') return '更换头像'
+  if (assistantPage.value) return '法律助手'
   return profilePageTitles[route.name] || activePage.value?.title || '法律实训'
 })
 const avatarInput = ref(null)
@@ -144,6 +165,7 @@ watch(() => route.fullPath, async (_, __, onCleanup) => {
       score: '/edu/score/my',
       achievements: '/edu/rec/my',
       notifications: '/edu/learning/notifications',
+      assistant: '/getInfo',
       profile: '/getInfo',
       avatar: '/getInfo'
     }
@@ -413,9 +435,9 @@ function openResource(resource, download = false) {
 </script>
 
 <template>
-  <div class="learning" :class="{ 'with-tabs': primaryPage }">
+  <div class="learning" :class="{ 'with-tabs': primaryPage, 'with-assistant-trigger': !assistantPage, 'assistant-page': assistantPage }">
     <header class="app-bar">
-      <RouterLink v-if="!primaryPage" :to="parentPage" class="app-bar-back" aria-label="返回上级">
+      <RouterLink v-if="!primaryPage" :to="parentPage" :replace="assistantPage" class="app-bar-back" aria-label="返回上级">
         <van-icon name="arrow-left" aria-hidden="true" />
       </RouterLink>
       <h1>{{ appBarTitle }}</h1>
@@ -431,7 +453,8 @@ function openResource(resource, download = false) {
     <p v-if="error" class="card error" role="alert">{{ error }}</p>
     <p v-if="message" class="card" role="status">{{ message }}</p>
     <p v-if="loading" class="card" role="status">加载中…</p>
-    <section v-if="route.name === 'profile'" aria-label="个人资料">
+    <LegalAssistant v-if="route.name === 'assistant'" :student="data" />
+    <section v-else-if="route.name === 'profile'" aria-label="个人资料">
       <header class="page-banner">
         <RouterLink class="profile-avatar" to="/profile/avatar" aria-label="更换头像">
           <img v-if="avatarSource" :src="avatarSource" alt="" @error="avatarImageFailed">
@@ -559,9 +582,14 @@ function openResource(resource, download = false) {
       <p class="multiline">{{ data.intro }}</p>
       <h3>任务</h3>
       <p v-if="!data.tasks.length">暂无任务</p>
-      <ul class="record-list"><li v-for="task in data.tasks" :key="task.taskId">
-        <RouterLink :to="'/task/' + task.taskId">{{ task.title }}</RouterLink>
-        <span class="muted">截止 {{ task.deadline }} · {{ statuses[task.submitStatus] }}</span>
+      <ul class="record-list course-task-list"><li v-for="task in data.tasks" :key="task.taskId">
+        <div class="course-task-details">
+          <RouterLink :to="'/task/' + task.taskId">{{ task.title }}</RouterLink>
+          <span class="muted">截止 {{ task.deadline }} · {{ statuses[task.submitStatus] }}</span>
+        </div>
+        <RouterLink v-if="taskSubmissionAction(task)" class="task-submit-entry" :to="'/task/' + task.taskId">
+          {{ taskSubmissionAction(task) }}
+        </RouterLink>
       </li></ul>
       <h3>课程资源</h3>
       <p v-if="!data.resources.length">暂无资源</p>
@@ -699,11 +727,16 @@ function openResource(resource, download = false) {
         <span>{{ entry.title }}</span>
       </RouterLink>
     </nav>
+    <RouterLink v-if="!assistantPage" class="assistant-trigger"
+      :to="{ name: 'assistant', query: { from: route.fullPath } }" aria-label="打开法律助手小律法">
+      <img :src="assistantAvatar" alt="" width="48" height="48">
+    </RouterLink>
   </div>
 </template>
 
 <style scoped>
 .learning {
+  --student-nav-height: 0rem;
   width: 100%;
   max-width: var(--lt-app-width);
   min-height: 100vh;
@@ -712,6 +745,7 @@ function openResource(resource, download = false) {
   background: var(--lt-field);
   box-shadow: 0 0 48px #21050466;
 }
+.with-tabs { --student-nav-height: 4.2rem; }
 nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .app-bar {
   position: sticky;
@@ -762,8 +796,26 @@ nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .primary-nav a:hover, .primary-nav .selected { background: var(--lt-active); color: var(--lt-on-dark); }
 .primary-nav .selected { box-shadow: inset 0 0 0 1px #c080507d; }
 .primary-nav .van-icon { font-size: 1.45rem; }
+.assistant-trigger {
+  position: fixed;
+  z-index: 5;
+  right: max(calc(1rem + env(safe-area-inset-right, 0px)), calc((100% - var(--lt-app-width)) / 2 + 1rem));
+  bottom: calc(var(--student-nav-height) + var(--lt-safe-bottom) + .85rem);
+  display: grid;
+  place-items: center;
+  width: 3.45rem;
+  height: 3.45rem;
+  border: 2px solid var(--lt-badge);
+  border-radius: 50%;
+  background: var(--lt-nav);
+  box-shadow: 0 .2rem .85rem #48151055;
+}
+.assistant-trigger img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .workspace-main { padding: 1rem 1rem calc(1.25rem + var(--lt-safe-bottom)); overflow-wrap: anywhere; }
-.with-tabs .workspace-main { padding-bottom: calc(5rem + var(--lt-safe-bottom)); }
+.assistant-page { display: flex; flex-direction: column; height: 100dvh; min-height: 0; }
+.assistant-page .app-bar { flex: none; }
+.assistant-page .workspace-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+.with-assistant-trigger .workspace-main { padding-bottom: calc(var(--student-nav-height) + var(--lt-safe-bottom) + 4.75rem); }
 .workspace-main .card { margin: 0 0 1rem; padding: 1rem; border: 1px solid var(--lt-border); box-shadow: 0 4px 16px #551c1414; }
 .page-banner {
   display: flex;
@@ -818,6 +870,13 @@ h2 { font-size: 1.2rem; }
 .record-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .85rem; border-radius: var(--lt-radius); background: var(--lt-field); }
 .record-list form { flex-basis: 100%; }
 .record-list .muted { flex-basis: 100%; }
+.course-task-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; }
+.course-task-details { display: grid; min-width: 0; gap: .35rem; }
+.workspace-main .task-submit-entry {
+  display: grid; place-items: center; min-height: 44px; padding: .4rem .65rem;
+  color: var(--lt-on-dark); background: var(--lt-primary); border-radius: var(--lt-radius);
+  text-decoration: none; font-size: .84rem; font-weight: 650; white-space: nowrap;
+}
 .score-value { margin-inline-start: auto; }
 .score-value { font-size: 1.35rem; color: var(--lt-primary); }
 .workspace-main a { color: var(--lt-primary); text-underline-offset: .2em; }

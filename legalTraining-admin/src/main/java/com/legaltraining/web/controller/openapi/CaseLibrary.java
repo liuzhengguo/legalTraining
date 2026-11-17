@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
+import java.util.stream.Collectors;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.legaltraining.common.exception.ServiceException;
@@ -27,14 +29,32 @@ public class CaseLibrary
     public List<Map<String, Object>> references(String type, long id)
     {
         return db.queryForList("""
-                select case_id as id,title from ops_case_reference
-                where target_type=? and target_id=? order by created_at,case_id
+                select r.case_id as id,coalesce(c.title,r.title) as title from ops_case_reference r
+                left join ops_local_case c on c.case_id=r.case_id
+                where r.target_type=? and r.target_id=? order by r.created_at,r.case_id
                 """, type, id);
     }
 
     public List<?> availableReferences(List<?> entries)
     {
-        return entries.isEmpty() || Boolean.TRUE.equals(cases(null, 1, 1).get("degrade")) ? List.of() : entries;
+        var references = entries.stream().filter(entry -> entry instanceof Map<?, ?> fields && fields.get("id") instanceof String)
+                .map(entry -> (Map<?, ?>) entry).toList();
+        var ids = references.stream().map(entry -> (String) entry.get("id")).filter(this::isLocal).distinct().toList();
+        var active = ids.isEmpty() ? Map.<String, String>of()
+                : db.queryForList("select case_id,title from ops_local_case where active=1 and case_id in ("
+                        + String.join(",", Collections.nCopies(ids.size(), "?")) + ")", ids.toArray()).stream()
+                        .collect(Collectors.toMap(row -> (String) row.get("case_id"), row -> (String) row.get("title")));
+        boolean external = references.stream().anyMatch(entry -> !isLocal((String) entry.get("id")))
+                && !Boolean.TRUE.equals(cases(null, 1, 1).get("degrade"));
+        return references.stream().filter(entry -> {
+                    String id = (String) entry.get("id");
+                    return isLocal(id) ? active.containsKey(id) : external;
+                })
+                .map(entry -> {
+                    String id = (String) entry.get("id");
+                    return isLocal(id) ? Map.of("id", id, "title", active.get(id)) : entry;
+                })
+                .toList();
     }
 
     public Map<String, Object> referencedCase(List<?> entries, String caseId)
@@ -79,10 +99,44 @@ public class CaseLibrary
     public Map<String, Object> caseDetail(String id)
     {
         if (!id.matches("[A-Za-z0-9_-]{1,64}")) throw new ServiceException("案例编号无效");
+        if (isLocal(id))
+        {
+            var rows = db.queryForList("select case_id as id,title,summary,source,content from ops_local_case "
+                    + "where case_id=? and active=1", id);
+            return rows.isEmpty() ? Map.of("degrade", true) : Map.of("degrade", false, "case", rows.get(0));
+        }
         JSONObject provider = findCases("/" + id, "");
         Map<String, Object> detail = provider == null ? Map.of() : caseFields(provider, true);
         boolean valid = id.equals(detail.get("id")) && detail.containsKey("title");
         return valid ? Map.of("degrade", false, "case", detail) : Map.of("degrade", true);
+    }
+
+    private boolean isLocal(String id)
+    {
+        return id.matches("local_[a-f0-9]{32}");
+    }
+
+    public Map<String, Object> localCases(String keyword, int pageNum, int size, boolean includeArchived)
+    {
+        String search = keyword == null ? "" : keyword.strip();
+        if (search.length() > 200) throw new ServiceException("案例检索关键词过长");
+        String match = "%" + search + "%";
+        String where = " from ops_local_case where (title like ? or summary like ? or source like ?)"
+                + (includeArchived ? "" : " and active=1");
+        long offset = ((long) Math.max(pageNum, 1) - 1) * size;
+        var rows = db.queryForList("select case_id as id,title,summary,source,active,created_by as createdBy,"
+                + "date_format(updated_at,'%Y-%m-%d %H:%i:%s') as updatedAt" + where
+                + " order by updated_at desc,case_id limit ? offset ?", match, match, match, size, offset);
+        return Map.of("rows", rows, "total", db.queryForObject("select count(*)" + where, Long.class, match, match, match),
+                "degrade", false);
+    }
+
+    public Map<String, Object> localDetail(String id)
+    {
+        var rows = db.queryForList("select case_id as id,title,summary,source,content,active,created_by as createdBy "
+                + "from ops_local_case where case_id=?", id);
+        if (rows.isEmpty()) throw new ServiceException("案例不存在");
+        return rows.get(0);
     }
 
     private Map<String, Object> caseFields(JSONObject provider, boolean detail)

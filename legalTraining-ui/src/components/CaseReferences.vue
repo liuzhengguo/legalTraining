@@ -10,10 +10,17 @@
         </li>
       </ul>
       <el-form inline @submit.native.prevent="search(1)">
+        <el-form-item label="案例库">
+          <el-select v-model="source" @change="search(1)">
+            <el-option label="校内案例库" value="local" />
+            <el-option label="外部案例库" value="external" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="案例关键词">
           <el-input v-model.trim="keyword" maxlength="200" clearable placeholder="输入案例关键词" />
         </el-form-item>
         <el-button native-type="submit" :loading="searching">检索案例</el-button>
+        <el-button v-hasPermi="['edu:case:manage']" @click="openLibrary">维护案例库</el-button>
       </el-form>
       <p v-if="unavailable" role="status">案例库暂不可用，已保存的关联可保留或移除。</p>
       <el-table v-else-if="searched" :data="results" empty-text="未找到匹配的案例">
@@ -45,7 +52,7 @@ export default {
   name: 'CaseReferences',
   props: { type: { type: String, required: true } },
   data() {
-    return { id: null, visible: false, keyword: '', submittedKeyword: '', page: 1, total: 0,
+    return { id: null, visible: false, source: 'local', keyword: '', submittedKeyword: '', page: 1, total: 0,
       results: [], linked: [], searched: false, unavailable: false, loading: false,
       searching: false, saving: false, detail: null }
   },
@@ -56,6 +63,7 @@ export default {
     async show(id) {
       this.id = id
       this.keyword = ''
+      this.source = 'local'
       this.submittedKeyword = ''
       this.results = []
       this.linked = []
@@ -65,7 +73,11 @@ export default {
       this.total = 0
       this.visible = true
       this.loading = true
-      try { await this.refresh() } finally { this.loading = false }
+      try { await Promise.all([this.refresh(), this.search(1)]) } finally { this.loading = false }
+    },
+    openLibrary() {
+      this.visible = false
+      this.$router.push({ name: 'EduCaseLibrary' })
     },
     async refresh() {
       const { data } = await request({ url: this.endpoint })
@@ -75,7 +87,7 @@ export default {
       if (page === 1) this.submittedKeyword = this.keyword
       this.searching = true
       try {
-        const { data } = await request({ url: this.endpoint + '/search', params: { keyword: this.submittedKeyword, pageNum: page } })
+        const { data } = await request({ url: this.endpoint + '/search', params: { keyword: this.submittedKeyword, pageNum: page, source: this.source } })
         this.results = data.rows
         this.total = data.total
         this.unavailable = data.degrade

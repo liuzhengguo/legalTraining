@@ -24,7 +24,7 @@ async function signIn() {
     localStorage.setItem('lt_token', result.token)
     const destination = route.query.redirect
     const validDestination = typeof destination === 'string' &&
-      /^\/(course|task|score|achievements|notifications|profile)(\/|\?|$)/.test(destination)
+      /^\/(course|task|score|achievements|assistant|notifications|profile)(\/|\?|$)/.test(destination)
     await router.replace(validDestination ? destination : '/course')
   } catch (cause) {
     error.value = cause.message

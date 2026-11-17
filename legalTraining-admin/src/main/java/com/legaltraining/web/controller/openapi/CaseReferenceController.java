@@ -41,11 +41,13 @@ public class CaseReferenceController extends BaseController
     @GetMapping("/search")
     @PreAuthorize("@ss.hasAnyPermi('edu:course:edit,edu:task:edit,exh:item:list')")
     public AjaxResult search(@PathVariable String type, @PathVariable long id,
-            @RequestParam(defaultValue = "") String keyword, @RequestParam(defaultValue = "1") int pageNum)
+            @RequestParam(defaultValue = "") String keyword, @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "local") String source)
     {
         requireTarget(type, id, false);
         if (keyword.length() > 200) return error("案例检索关键词过长");
-        return success(library.cases(keyword, pageNum, 10));
+        return success("external".equals(source) ? library.cases(keyword, pageNum, 10)
+                : library.localCases(keyword, pageNum, 10, false));
     }
 
     @GetMapping("/detail/{caseId}")
