@@ -19,7 +19,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" fixed="right" align="right" header-align="center" width="180">
+      <el-table-column label="操作" fixed="right" align="center" header-align="center" width="180" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <el-button type="text" @click="open(row, true)">查看</el-button>
           <el-button v-if="canMaintain(row)" type="text" @click="open(row)">编辑</el-button>

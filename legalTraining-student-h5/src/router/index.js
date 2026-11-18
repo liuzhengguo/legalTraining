@@ -1,9 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Learning from '../Learning.vue'
+import GalleryHome from '../GalleryHome.vue'
+import GalleryExperience from '../GalleryExperience.vue'
 import StudentLogin from '../StudentLogin.vue'
+import { consumeSsoTicket } from '../sso'
 
 const routes = [
-  { path: '/', redirect: '/course' },
+  { path: '/', redirect: '/home' },
+  { path: '/home', component: GalleryHome, name: 'home' },
+  { path: '/gallery', component: GalleryExperience, name: 'galleryGuide' },
+  { path: '/gallery/zone/:zoneId', component: GalleryExperience, name: 'galleryZone' },
+  { path: '/gallery/item/:itemId', component: GalleryExperience, name: 'galleryItem' },
+  { path: '/gallery/hotspots', component: GalleryExperience, name: 'galleryHotspots' },
+  { path: '/gallery/boards', component: GalleryExperience, name: 'galleryBoards' },
   { path: '/login', component: StudentLogin, name: 'login' },
   { path: '/course', component: Learning, name: 'courses' },
   { path: '/course/:courseId', component: Learning, name: 'course' },
@@ -19,7 +28,18 @@ const routes = [
   { path: '/:pathMatch(.*)*', redirect: '/course' }
 ]
 const router = createRouter({ history: createWebHistory(), routes, scrollBehavior: () => ({ top: 0 }) })
-router.beforeEach(to => {
+router.beforeEach(async to => {
+  const query = { ...to.query }
+  if (typeof query.sso === 'string') {
+    delete query.sso
+    const clean = { path: to.path, query, hash: to.hash, replace: true }
+    const signedIn = await consumeSsoTicket()
+    if (!signedIn) {
+      const redirect = to.path + (Object.keys(query).length ? '?' + new URLSearchParams(query).toString() : '')
+      return { name: 'login', query: { redirect, reason: 'sso' }, replace: true }
+    }
+    return clean
+  }
   if (to.name !== 'login' && !localStorage.getItem('lt_token')) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }

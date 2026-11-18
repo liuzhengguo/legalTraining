@@ -22,11 +22,13 @@
         <el-button native-type="submit" :loading="searching">检索案例</el-button>
         <el-button v-hasPermi="['edu:case:manage']" @click="openLibrary">维护案例库</el-button>
       </el-form>
-      <p v-if="unavailable" role="status">案例库暂不可用，已保存的关联可保留或移除。</p>
+      <p v-if="unavailable" role="status">{{ source === 'external'
+        ? '外部案例库未配置或暂不可用，请联系管理员检查系统参数。'
+        : '校内案例库暂不可用，请稍后重试。' }}</p>
       <el-table v-else-if="searched" :data="results" empty-text="未找到匹配的案例">
         <el-table-column prop="title" label="案例" />
         <el-table-column prop="source" label="来源" />
-        <el-table-column label="操作" fixed="right" align="right" width="130">
+        <el-table-column label="操作" fixed="right" align="center" width="150" class-name="nowrap-actions">
           <template slot-scope="{row}">
             <el-button type="text" @click="view(row)">详情</el-button>
             <el-button type="text" :disabled="saving || linked.some(item => item.id === row.id)" @click="attach(row)">关联</el-button>
@@ -54,7 +56,7 @@ export default {
   data() {
     return { id: null, visible: false, source: 'local', keyword: '', submittedKeyword: '', page: 1, total: 0,
       results: [], linked: [], searched: false, unavailable: false, loading: false,
-      searching: false, saving: false, detail: null }
+      searching: false, searchVersion: 0, saving: false, detail: null }
   },
   computed: {
     endpoint() { return '/ops/case-reference/' + this.type + '/' + this.id }
@@ -85,15 +87,26 @@ export default {
     },
     async search(page) {
       if (page === 1) this.submittedKeyword = this.keyword
+      const version = ++this.searchVersion
+      this.results = []
+      this.total = 0
+      this.searched = false
+      this.unavailable = false
+      this.detail = null
       this.searching = true
       try {
         const { data } = await request({ url: this.endpoint + '/search', params: { keyword: this.submittedKeyword, pageNum: page, source: this.source } })
+        if (version !== this.searchVersion) return
         this.results = data.rows
         this.total = data.total
         this.unavailable = data.degrade
         this.page = page
         this.searched = true
-      } finally { this.searching = false }
+      } catch {
+        if (version === this.searchVersion) this.unavailable = true
+      } finally {
+        if (version === this.searchVersion) this.searching = false
+      }
     },
     async view(item) {
       this.detail = null

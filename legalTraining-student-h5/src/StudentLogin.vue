@@ -8,7 +8,7 @@ const router = useRouter()
 const form = ref({ username: '', password: '' })
 const submitting = ref(false)
 const passwordVisible = ref(false)
-const error = ref('')
+const error = ref(route.query.reason === 'sso' ? '门户登录票据已失效，请重新登录' : '')
 const agreement = ref(null)
 
 async function signIn() {

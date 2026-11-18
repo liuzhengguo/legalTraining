@@ -114,6 +114,19 @@ public class EduScoreController extends BaseController
     }
 
     /**
+     * 组内加减分（TC-05-04）：设置 group_adjust 并重算 final_score，留痕并通知学生
+     */
+    @Log(title = "组内加减分", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('edu:score:adjust')")
+    @PutMapping("/{scoreId}/group-adjust")
+    public AjaxResult groupAdjust(@PathVariable Long scoreId,
+            @RequestParam BigDecimal adjust,
+            @RequestParam String reason)
+    {
+        return success(eduScoreService.groupAdjust(scoreId, adjust, reason));
+    }
+
+    /**
      * 更正记录
      */
     @PreAuthorize("@ss.hasPermi('edu:score:query')")

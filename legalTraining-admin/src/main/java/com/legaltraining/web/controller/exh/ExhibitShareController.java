@@ -151,6 +151,18 @@ public class ExhibitShareController extends BaseController
         return qrImage(link);
     }
 
+    @Anonymous
+    @GetMapping(value = "/gallery/v1/zones/{zoneId}/qr.png", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> publicZoneQr(@PathVariable long zoneId) throws IOException, WriterException
+    {
+        if (!openTarget("zone", zoneId))
+        {
+            return ResponseEntity.notFound().build();
+        }
+        String link = java.net.URI.create(shareBase()).resolve("../lite/zone/" + zoneId + "?channel=qrcode").toString();
+        return qrImage(link);
+    }
+
     private ResponseEntity<byte[]> qrImage(String link) throws IOException, WriterException
     {
         var matrix = new QRCodeWriter().encode(link, BarcodeFormat.QR_CODE, 256, 256);
@@ -183,12 +195,15 @@ public class ExhibitShareController extends BaseController
     @PreAuthorize("@ss.hasPermi('exh:share:list')")
     public AjaxResult list(@RequestParam(required = false) String targetType)
     {
-        String where = targetType == null || targetType.isBlank() ? "" : " where s.target_type=? ";
+        boolean filtered = targetType != null && !targetType.isBlank();
+        String where = filtered ? " where s.target_type=? " : " ";
         List<Object> args = new ArrayList<>();
-        if (!where.isEmpty()) args.add(targetType);
+        if (filtered) args.add(targetType);
         List<Map<String, Object>> rows = jdbc.queryForList("select s.link_id as linkId,s.target_type as targetType,"
                 + "s.target_id as targetId,s.channel,s.short_code as shortCode,s.qr_path as qrPath,"
-                + "s.view_count as viewCount,date_format(s.create_time,'%Y-%m-%d %H:%i:%s') as createTime,"
+                + "s.view_count as viewCount,(select count(*) from exh_share_event e "
+                + "where e.target_type=s.target_type and e.target_id=s.target_id and e.channel=s.channel) as shareCount,"
+                + "date_format(s.create_time,'%Y-%m-%d %H:%i:%s') as createTime,"
                 + "case when s.target_type='item' then (select title from exh_item i where i.item_id=s.target_id) "
                 + "else (select zone_name from exh_zone z where z.zone_id=s.target_id) end as targetName "
                 + "from exh_share_link s" + where + "order by s.link_id desc", args.toArray());
@@ -223,6 +238,58 @@ public class ExhibitShareController extends BaseController
                 """ + target + " and z.status=1 and z.open_level=2 and z.del_flag='0') target",
                 visit.channel(), visit.mode(), visit.session(), visit.duration(), visit.targetId());
         return ResponseEntity.noContent().build();
+    }
+
+    public record ShareEventForm(@NotBlank @Pattern(regexp = "zone|item") String targetType,
+            @NotNull Long targetId,
+            @NotBlank @Pattern(regexp = "qrcode|link|terminal|portal|direct") String channel,
+            @NotBlank @Pattern(regexp = "link|qr|card|system") String shareType,
+            @NotBlank @Pattern(regexp = "[a-f0-9]{32}") String session) {}
+
+    /** 独立分享事件采集：与 visit 分开，不能把访问量当作分享次数（EL-04-02） */
+    @Anonymous
+    @RateLimiter(time = 60, count = 60, limitType = LimitType.IP)
+    @PostMapping("/gallery/v1/shares")
+    public ResponseEntity<Void> share(@Valid @RequestBody ShareEventForm form)
+    {
+        if (!openTarget(form.targetType(), form.targetId()))
+        {
+            return ResponseEntity.notFound().build();
+        }
+        jdbc.update("insert into exh_share_event(target_type,target_id,channel,share_type,anon_id,share_time) "
+                + "values(?,?,?,?,?,now())", form.targetType(), form.targetId(), form.channel(),
+                form.shareType(), form.session());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 访客分享卡片：封面、标题、摘要与来源，供社交平台预览 */
+    @Anonymous
+    @GetMapping("/gallery/v1/share-card")
+    public ResponseEntity<AjaxResult> shareCard(@RequestParam String targetType, @RequestParam long targetId)
+    {
+        if (!openTarget(targetType, targetId))
+        {
+            return ResponseEntity.notFound().build();
+        }
+        String sql = "item".equals(targetType)
+                ? "select title, summary, cover, '展项' as source from exh_item where item_id=?"
+                : "select zone_name as title, intro as summary, cover, '展区' as source from exh_zone where zone_id=?";
+        Map<String, Object> card = new LinkedHashMap<>(jdbc.queryForMap(sql, targetId));
+        card.put("targetType", targetType);
+        card.put("targetId", targetId);
+        card.put("url", "/lite/" + targetType + "/" + targetId + "?channel=link");
+        card.put("qrUrl", "/gallery/v1/" + ("item".equals(targetType) ? "items" : "zones")
+                + "/" + targetId + "/qr.png");
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AjaxResult.success(card));
+    }
+
+    private boolean openTarget(String targetType, long targetId)
+    {
+        String sql = "item".equals(targetType)
+                ? "select count(*) from exh_item where item_id=? and status=2 and view_level=2 and del_flag='0'"
+                : "select count(*) from exh_zone where zone_id=? and status=1 and open_level=2 and del_flag='0'";
+        Integer count = jdbc.queryForObject(sql, Integer.class, targetId);
+        return count != null && count > 0;
     }
 
     @GetMapping("/exh/stat/access")

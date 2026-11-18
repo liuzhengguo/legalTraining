@@ -55,6 +55,24 @@ public class ExhibitOfflineController extends BaseController
             Boolean urgent) {}
     public record ApproveForm(boolean approve, @Size(max = 500) String opinion) {}
 
+    @GetMapping("/exh/offline/targets")
+    @PreAuthorize("@ss.hasAnyPermi('exh:offline:audit,exh:publish:list')")
+    public AjaxResult targets()
+    {
+        return success(Map.of(
+                "item", jdbc.queryForList("""
+                        select i.item_id as targetId,i.title as targetName,z.zone_name as zoneName
+                        from exh_item i left join exh_zone z on z.zone_id=i.zone_id and z.del_flag='0'
+                        where i.del_flag='0' and i.status=2
+                        order by i.title,i.item_id
+                        """),
+                "zone", jdbc.queryForList("""
+                        select zone_id as targetId,zone_name as targetName
+                        from exh_zone where del_flag='0' and status=1
+                        order by zone_name,zone_id
+                        """)));
+    }
+
     @GetMapping("/exh/offline/list")
     @PreAuthorize("@ss.hasAnyPermi('exh:offline:audit,exh:publish:list')")
     public AjaxResult list(@RequestParam(required = false) Integer status)

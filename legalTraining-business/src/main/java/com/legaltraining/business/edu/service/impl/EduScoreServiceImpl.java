@@ -74,6 +74,7 @@ public class EduScoreServiceImpl implements IEduScoreService
             throw new ServiceException("任务不存在或已删除");
         }
         businessScope.requireCourseAccess(task.getCourseId());
+        businessScope.requireTermWritableByTask(taskId); // F07：归档后成绩写接口只读
         EduScore query = new EduScore();
         query.setTaskId(taskId);
         query.setStatus(SCORE_PENDING);
@@ -123,6 +124,7 @@ public class EduScoreServiceImpl implements IEduScoreService
     {
         EduScore exist = lockScore(scoreId);
         businessScope.requireCourseAccess(exist.getCourseId());
+        businessScope.requireTermWritableByCourse(exist.getCourseId()); // F07
         if (exist.getStatus() == SCORE_PENDING)
         {
             throw new ServiceException("请先发布成绩再更正");
@@ -168,6 +170,58 @@ public class EduScoreServiceImpl implements IEduScoreService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> groupAdjust(Long scoreId, BigDecimal adjust, String reason)
+    {
+        EduScore exist = lockScore(scoreId);
+        businessScope.requireCourseAccess(exist.getCourseId());
+        businessScope.requireTermWritableByCourse(exist.getCourseId()); // F07
+        if (exist.getStatus() == SCORE_PENDING)
+        {
+            throw new ServiceException("请先发布成绩再设置组内加减分");
+        }
+        if (adjust == null)
+        {
+            throw new ServiceException("加减分值不能为空");
+        }
+        BigDecimal full = exist.getTotalScoreFull() == null ? new BigDecimal("100") : exist.getTotalScoreFull();
+        // 组内加减分限制在 ±满分范围，final_score 限制在 0 ~ 满分
+        if (adjust.abs().compareTo(full) > 0)
+        {
+            throw new ServiceException("加减分绝对值不能超过 " + full);
+        }
+        if (StringUtils.isBlank(reason) || reason.length() > 500)
+        {
+            throw new ServiceException("请填写加减分原因（不超过 500 字）");
+        }
+        BigDecimal oldFinal = exist.getFinalScore() == null ? BigDecimal.ZERO : exist.getFinalScore();
+        BigDecimal newFinal = (exist.getTaskScore() == null ? BigDecimal.ZERO : exist.getTaskScore()).add(adjust);
+        if (newFinal.compareTo(BigDecimal.ZERO) < 0 || newFinal.compareTo(full) > 0)
+        {
+            throw new ServiceException("加减分后成绩须在 0 ~ " + full + " 之间");
+        }
+        EduScore update = new EduScore();
+        update.setScoreId(scoreId);
+        update.setGroupAdjust(adjust);
+        update.setFinalScore(newFinal);
+        update.setStatus(SCORE_ADJUSTED);
+        if (exist.getScoreMode() != null && exist.getScoreMode() == MODE_LEVEL)
+        {
+            update.setLevelCode(eduScoreMapper.selectLevelCodeByScore(newFinal));
+        }
+        eduScoreMapper.updateScore(update);
+        eduScoreMapper.insertAdjust(scoreId, oldFinal, newFinal, "组内加减分：" + reason, currentUserId());
+        notifyStudent("NT-07", exist, "组内加减分已更新", exist.getTaskTitle() + "：" + reason);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("scoreId", scoreId);
+        result.put("groupAdjust", adjust);
+        result.put("finalScore", newFinal);
+        result.put("message", "组内加减分已保存并留痕");
+        return result;
+    }
+
+    @Override
     public List<Map<String, Object>> adjustLog(Long scoreId)
     {
         EduScore score = eduScoreMapper.selectById(scoreId);
@@ -191,6 +245,7 @@ public class EduScoreServiceImpl implements IEduScoreService
             throw new ServiceException("课程不能为空");
         }
         businessScope.requireCourseAccess(courseId);
+        businessScope.requireTermWritableByCourse(courseId); // F07
         // 以已发布成绩为口径，逐学生求平均作为课程总评
         EduScore query = new EduScore();
         query.setCourseId(courseId);
@@ -317,6 +372,7 @@ public class EduScoreServiceImpl implements IEduScoreService
         }
         EduScore score = lockScore(scoreIds.get(0));
         businessScope.requireCourseAccess(score.getCourseId());
+        businessScope.requireTermWritableByCourse(score.getCourseId()); // F07
         if (score.getStatus() == SCORE_PENDING)
         {
             throw new ServiceException("成绩尚未发布");

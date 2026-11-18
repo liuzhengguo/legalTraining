@@ -88,6 +88,7 @@ public class AchievementController extends BaseController
         Map<String, Object> submission = row("select s.user_id,s.status,t.course_id,t.title from edu_submission s "
                 + "join edu_task t on t.task_id=s.task_id where s.submission_id=? for update", form.submissionId());
         scope.requireCourseAccess(number(submission, "course_id"));
+        scope.requireTermWritableBySubmission(form.submissionId()); // F07：归档后成果写接口只读
         if (number(submission, "status") != 3) throw new ServiceException("仅可推荐已批阅作业");
         if (submission.get("user_id") == null) throw new ServiceException("该成果尚未确定授权人");
         Map<String, Object> zone = row("select zone_name from exh_zone where zone_id=? and del_flag='0'", form.zoneId());
@@ -201,8 +202,9 @@ public class AchievementController extends BaseController
     @Transactional
     public AjaxResult audit(@PathVariable long id, @Valid @RequestBody Decision decision)
     {
-        Map<String, Object> rec = row("select r.status,r.teacher_id,s.user_id from edu_recommendation r "
+        Map<String, Object> rec = row("select r.status,r.teacher_id,s.user_id,r.submission_id from edu_recommendation r "
                 + "join edu_submission s on s.submission_id=r.submission_id where r.rec_id=? for update", id);
+        scope.requireTermWritableBySubmission(number(rec, "submission_id")); // F07：归档后成果写接口只读
         if (number(rec, "status") != 1
                 || pushQueue.enabled() && jdbc.queryForObject("""
                         select count(*) from ops_rec_push_job where rec_id=? and (status<>1 or ?)
@@ -288,6 +290,37 @@ public class AchievementController extends BaseController
         }
         notify("NT-08", number(rec, "user_id"), id, "成果展示授权请求", rec.get("title") + " · 请在学生端确认署名方式与展示范围");
         return success(Map.of("msg", "已发送站内授权请求"));
+    }
+
+    /**
+     * 驳回重送（F19）：审核驳回(status=3)或学生撤回(status=4)后，教师修改材料重新送审。
+     * 保留学生已确认的授权，仅把推荐状态复位为待审(1)并重新进入审核队列。
+     */
+    @PostMapping("/edu/rec/{id}/resubmit")
+    @PreAuthorize("@ss.hasPermi('edu:score:recommend')")
+    @Transactional
+    public AjaxResult resubmit(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body)
+    {
+        Map<String, Object> rec = row("select r.status,r.teacher_id,s.user_id from edu_recommendation r "
+                + "join edu_submission s on s.submission_id=r.submission_id where r.rec_id=? for update", id);
+        long status = number(rec, "status");
+        if (status != 3 && status != 4)
+        {
+            throw new ServiceException("仅审核驳回或已撤回的推荐可重新送审");
+        }
+        if (number(rec, "teacher_id") != getUserId() && !scope.hasAnyRole("registrar"))
+        {
+            throw new ServiceException("仅推荐教师或教务可重新送审");
+        }
+        scope.requireTermWritableByRec(id); // F07：归档后成果写接口只读
+        String reason = body == null ? null : (String) body.get("reason");
+        jdbc.update("update edu_recommendation set status=1,push_status=0,review_opinion=?,audit_time=null,auditor_id=null,"
+                + "withdraw_by=null,withdraw_time=null,update_time=now() where rec_id=?", reason, id);
+        // 学生授权被撤回过则复位授权为待确认，重新走授权流程
+        jdbc.update("update edu_authorization set status=0,confirm_time=null where rec_id=? and status=2", id);
+        dispatchRecommendation(id);
+        notify("NT-10", number(rec, "user_id"), id, "成果已重新送审", reason);
+        return success("已重新送审");
     }
 
     @PostMapping("/edu/rec/{id}/auth-file")

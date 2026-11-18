@@ -14,11 +14,12 @@
       <el-table-column label="状态">
         <template slot-scope="{ row }">{{ statuses[row.status] }}</template>
       </el-table-column>
-      <el-table-column label="操作" fixed="right" align="right" header-align="center" width="360" class-name="nowrap-actions">
+      <el-table-column label="操作" fixed="right" align="center" header-align="center" width="440" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="$refs.caseReferences.show(row.courseId)">关联案例</el-button>
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="openForm(row)">编辑</el-button>
           <el-button v-hasPermi="['edu:course:add']" type="text" @click="openCopy(row)">复制</el-button>
+          <el-button v-if="row.status !== 2" v-hasPermi="['edu:resource:edit']" type="text" @click="openResources(row)">投放资源</el-button>
           <el-button v-if="row.status !== 2" v-hasPermi="['edu:course:edit']" type="text" @click="openExhibits(row)">关联展厅</el-button>
           <el-button v-if="row.status === 0" v-hasPermi="['edu:course:edit']" type="text" @click="changeState(row, 'publish')">发布</el-button>
           <el-button v-if="row.status === 1" v-hasPermi="['edu:course:edit']" type="text" @click="changeState(row, 'archive')">归档</el-button>
@@ -52,6 +53,32 @@
       </el-select>
       <span slot="footer"><el-button type="primary" :loading="saving" @click="saveExhibits">保存关联</el-button></span>
     </el-dialog>
+    <el-dialog :visible.sync="resourceOpen" title="投放课程资源" width="760px" destroy-on-close>
+      <el-alert type="info" :closable="false" show-icon class="resource-tip"
+        title="从已上架资源中选择，保存后学生刷新课程即可看到；列表顺序即学生端的资料顺序。" />
+      <div class="resource-block">
+        <div class="resource-block-title">已投放资源（{{ pickedResources.length }}）</div>
+        <div v-if="!pickedResources.length" class="resource-empty">尚未投放资源</div>
+        <div v-for="(item, index) in pickedResources" :key="item.resourceId" class="picked-row">
+          <span class="picked-name">{{ index + 1 }}. {{ item.title }}</span>
+          <el-button type="text" :disabled="index === 0" @click="moveResource(index, -1)">上移</el-button>
+          <el-button type="text" :disabled="index === pickedResources.length - 1" @click="moveResource(index, 1)">下移</el-button>
+          <el-button type="text" class="danger-text" @click="removeResource(index)">移除</el-button>
+        </div>
+      </div>
+      <div class="resource-block">
+        <div class="resource-block-title">添加资源</div>
+        <el-select v-model="addingResourceId" filterable clearable placeholder="选择已上架的教学资源" style="width:100%">
+          <el-option v-for="item in resourceOptions" :key="item.resourceId" :label="item.title" :value="item.resourceId"
+                     :disabled="isPicked(item.resourceId)" />
+        </el-select>
+        <el-button style="margin-top:8px" :disabled="!addingResourceId" @click="addResource">加入待投放列表</el-button>
+      </div>
+      <span slot="footer">
+        <el-button @click="resourceOpen = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveResources">保存投放</el-button>
+      </span>
+    </el-dialog>
     <el-dialog :visible.sync="copying" title="复制课程" width="590px">
       <el-form label-width="100px" @submit.native.prevent="copyCourse">
         <el-form-item label="目标学期">
@@ -82,6 +109,7 @@ export default {
       rows: [], total: 0, terms: [], classes: [], form: {}, editing: false, loading: false, saving: false,
       copying: false, copyForm: {}, sourceCourseId: null,
       exhibitOpen: false, exhibitCourseId: null, exhibitOptions: [], selectedExhibits: [],
+      resourceOpen: false, resourceCourseId: null, resourceOptions: [], pickedResources: [], addingResourceId: null,
       statuses: ['草稿', '已发布', '已归档'],
       rules: {
         courseCode: [{ required: true, message: '请输入课程编码' }],
@@ -96,6 +124,46 @@ export default {
   },
   created() { this.load() },
   methods: {
+    // ---------- 课程资源投放（TC-02-01） ----------
+    async openResources(row) {
+      const [all, current] = await Promise.all([
+        request({ url: '/edu/resource/list', params: { status: 0, pageNum: 1, pageSize: 1000 } }),
+        request({ url: '/edu/resource/course/' + row.courseId })
+      ])
+      this.resourceOptions = all.rows || []
+      this.pickedResources = (current.data || []).map(item => ({ resourceId: item.resourceId, title: item.title }))
+      this.resourceCourseId = row.courseId
+      this.addingResourceId = null
+      this.resourceOpen = true
+    },
+    isPicked(resourceId) { return this.pickedResources.some(item => item.resourceId === resourceId) },
+    addResource() {
+      const found = this.resourceOptions.find(item => item.resourceId === this.addingResourceId)
+      if (found && !this.isPicked(found.resourceId)) {
+        this.pickedResources.push({ resourceId: found.resourceId, title: found.title })
+        this.$modal.msgSuccess('已加入列表，点击「保存投放」后生效')
+      }
+      this.addingResourceId = null
+    },
+    moveResource(index, delta) {
+      const target = index + delta
+      if (target < 0 || target >= this.pickedResources.length) return
+      const next = this.pickedResources.slice()
+      const [item] = next.splice(index, 1)
+      next.splice(target, 0, item)
+      this.pickedResources = next
+    },
+    removeResource(index) { this.pickedResources.splice(index, 1) },
+    async saveResources() {
+      if (this.saving) return
+      this.saving = true
+      try {
+        const data = this.pickedResources.map((item, sortNo) => ({ resourceId: item.resourceId, sortNo }))
+        await request({ url: '/edu/resource/course/' + this.resourceCourseId, method: 'put', data })
+        this.resourceOpen = false
+        this.$modal.msgSuccess('课程资源已保存')
+      } finally { this.saving = false }
+    },
     exhibitKey(entry) { return entry.targetType + ':' + entry.targetId },
     async openExhibits(row) {
       const [options, current] = await Promise.all([
@@ -192,4 +260,11 @@ export default {
 </script>
 <style>
 .nowrap-actions .cell { white-space: nowrap; }
+.resource-tip { margin-bottom: 12px; }
+.resource-block { margin-bottom: 16px; }
+.resource-block-title { font-weight: 600; margin-bottom: 8px; color: #303133; }
+.resource-empty { color: #909399; font-size: 13px; padding: 8px 0; }
+.picked-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #ebeef5; }
+.picked-name { flex: 1; color: #606266; }
+.danger-text { color: #f56c6c; }
 </style>

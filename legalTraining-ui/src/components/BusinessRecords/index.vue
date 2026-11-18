@@ -30,7 +30,11 @@
           </slot>
         </template>
       </el-table-column>
-      <el-table-column v-if="config.fields || config.rowActions" label="操作" fixed="right" align="right" width="240">
+      <el-table-column v-if="config.fields || config.rowActions" label="操作" fixed="right"
+        :key="config.actionColumn && config.actionColumn.className || 'record-actions'"
+        :align="config.actionColumn && config.actionColumn.align || 'center'"
+        :width="config.actionColumn && config.actionColumn.width || 240"
+        :class-name="((config.actionColumn && config.actionColumn.className || '') + ' nowrap-actions').trim()">
         <template slot-scope="{ row }">
           <el-button v-if="config.fields && !config.createOnly" v-hasPermi="[config.permission + ':edit']" type="text" @click="open(row)">编辑</el-button>
           <el-button v-if="config.remove" v-hasPermi="[config.permission + ':remove']" type="text" @click="remove(row)">删除</el-button>

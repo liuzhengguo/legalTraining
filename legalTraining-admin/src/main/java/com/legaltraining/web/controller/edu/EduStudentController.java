@@ -1,8 +1,10 @@
 package com.legaltraining.web.controller.edu;
 
 import java.util.List;
+import java.util.Map;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,6 +34,25 @@ public class EduStudentController extends BaseController
 {
     @Autowired
     private IEduStudentService eduStudentService;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    /**
+     * F15：导入/转班用的学期与班级下拉数据（按名称展示，不暴露记录 ID 输入框）。
+     */
+    @PreAuthorize("@ss.hasAnyPermi('edu:student:import,edu:student:transfer,edu:student:add')")
+    @GetMapping("/import-options")
+    public AjaxResult importOptions()
+    {
+        List<Map<String, Object>> terms = jdbc.queryForList(
+                "select term_id as value, term_name as label from edu_term "
+                + "where del_flag='0' and status<>2 order by is_current desc, start_date desc");
+        List<Map<String, Object>> classes = jdbc.queryForList(
+                "select class_id as value, class_name as label, term_id as termId from edu_class "
+                + "where del_flag='0' and status=0 order by class_name");
+        return success(Map.of("terms", terms, "classes", classes));
+    }
 
     @PreAuthorize("@ss.hasPermi('edu:student:list')")
     @GetMapping("/list")

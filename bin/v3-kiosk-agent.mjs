@@ -13,8 +13,18 @@ if (!trusted(pageUrl) || !trusted(commandBase)
     || pageUrl.username || pageUrl.password || commandBase.username || commandBase.password
     || !config.profile) throw new Error('Invalid kiosk configuration')
 
-const key = 'lt-device:' + (config.galleryApi || '/gallery-api') + ':credentials'
+const galleryApi = config.galleryApi || '/gallery-api'
+const key = 'lt-device:' + galleryApi + ':credentials'
 const viewport = { width: 1280, height: 720 }
+const proxy = config.proxy && typeof config.proxy.server === 'string' && config.proxy.server ? {
+  server: config.proxy.server,
+  ...(config.proxy.bypass ? { bypass: config.proxy.bypass } : {}),
+  ...(config.proxy.username ? { username: config.proxy.username } : {}),
+  ...(config.proxy.password ? { password: config.proxy.password } : {})
+} : undefined
+if (proxy && !['http:', 'https:', 'socks5:'].includes(new URL(proxy.server).protocol)) {
+  throw new Error('Invalid kiosk proxy configuration')
+}
 const reboot = createRebootCoordinator(config.profile, config.allowSystemReboot === true)
 let context
 let page
@@ -26,6 +36,7 @@ async function openKiosk() {
     headless: Boolean(config.headless),
     viewport,
     executablePath: config.browserBinary,
+    proxy,
     args: config.headless ? [] : ['--kiosk', '--no-first-run']
   })
   page = context.pages()[0] || await context.newPage()
@@ -55,6 +66,39 @@ async function credentials() {
   }, key)
 }
 
+async function offlineCheck() {
+  const inspect = () => page.evaluate(apiBase => {
+    const storagePrefix = 'lt-device:' + apiBase + ':'
+    let manifest = null
+    let meta = null
+    try { manifest = JSON.parse(localStorage.getItem(storagePrefix + 'manifest') || 'null') } catch {}
+    try { meta = JSON.parse(localStorage.getItem(storagePrefix + 'asset-meta') || 'null') } catch {}
+    return {
+      controller: Boolean(navigator.serviceWorker && navigator.serviceWorker.controller),
+      items: Array.isArray(manifest?.items) ? manifest.items.length : 0,
+      cachedAssets: Object.keys(meta?.urls || {}).length,
+      offlineText: /离线模式|暂无可播放的离线展项/.test(document.body.innerText)
+    }
+  }, galleryApi)
+  await inspect()
+  await context.setOffline(true)
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 })
+    await page.waitForFunction(() => /离线模式|暂无可播放的离线展项/.test(document.body.innerText),
+      null, { timeout: 6000 })
+    const after = await inspect()
+    const ok = after.controller && after.items > 0 && after.cachedAssets > 0 && after.offlineText
+    const detail = ok
+      ? `离线冷启动通过：${after.items}项展项/${after.cachedAssets}个缓存素材`
+      : `离线冷启动证据不足：${JSON.stringify(after)}`
+    return { success: ok, detail: detail.slice(0, 220) }
+  } catch {
+    return { success: false, detail: '离线冷启动失败：请确认应用壳与素材已缓存' }
+  } finally {
+    await context.setOffline(false)
+  }
+}
+
 async function handle(command, headers, deviceCode) {
   let result
   try {
@@ -67,6 +111,8 @@ async function handle(command, headers, deviceCode) {
       context = null
       await openKiosk()
       result = { success: true, detail: '终端浏览器已重新启动' }
+    } else if (command.action === 'offline-check') {
+      result = await offlineCheck()
     } else if (command.action === 'reboot') {
       await reboot.begin(command, deviceCode)
       return

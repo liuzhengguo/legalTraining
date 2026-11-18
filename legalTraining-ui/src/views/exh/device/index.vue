@@ -12,7 +12,7 @@
       <el-table-column prop="bindPlaylist" label="播放列表" />
       <el-table-column prop="lastHeartbeat" label="最近心跳" />
       <el-table-column prop="cacheSize" label="清单字节数" />
-      <el-table-column label="操作" width="240" fixed="right" align="right">
+      <el-table-column label="操作" width="270" fixed="right" align="center" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <template v-if="row.status !== 3">
             <el-button type="text" @click="open('bind', row)">绑定</el-button>
@@ -27,10 +27,11 @@
       <p>{{ commandDevice.deviceCode }}</p>
       <el-button :disabled="commandBusy" @click="sendCommand('capture')">请求截图</el-button>
       <el-button :disabled="commandBusy" @click="sendCommand('restart')">重启终端浏览器</el-button>
+      <el-button :disabled="commandBusy" @click="sendCommand('offline-check')">离线冷启动自检</el-button>
       <el-button :disabled="commandBusy" @click="sendCommand('reboot')">重启终端系统</el-button>
       <el-button :disabled="commandBusy" @click="loadCommands">刷新</el-button>
       <el-table :data="commands">
-        <el-table-column label="命令"><template slot-scope="{ row }">{{ { capture: '截图', restart: '重启浏览器', reboot: '重启系统' }[row.action] }}</template></el-table-column>
+        <el-table-column label="命令"><template slot-scope="{ row }">{{ { capture: '截图', restart: '重启浏览器', 'offline-check': '离线冷启动自检', reboot: '重启系统' }[row.action] }}</template></el-table-column>
         <el-table-column label="状态"><template slot-scope="{ row }">{{ ['待执行', '执行中', '已完成', '失败'][row.status] }}</template></el-table-column>
         <el-table-column prop="detail" label="结果" />
         <el-table-column label="文件"><template slot-scope="{ row }">
@@ -50,7 +51,7 @@
       <el-table-column prop="playlistId" label="编号" />
       <el-table-column prop="name" label="名称" />
       <el-table-column label="展项数"><template slot-scope="{ row }">{{ row.items.length }}</template></el-table-column>
-      <el-table-column label="操作" width="90" fixed="right" align="right"><template slot-scope="{ row }"><el-button type="text" @click="editPlaylist(row)">编辑</el-button></template></el-table-column>
+      <el-table-column label="操作" width="90" fixed="right" align="center" class-name="nowrap-actions"><template slot-scope="{ row }"><el-button type="text" @click="editPlaylist(row)">编辑</el-button></template></el-table-column>
     </el-table>
     <el-dialog :visible.sync="playlistVisible" title="编辑播放列表" width="650px">
       <el-form label-width="100px" @submit.native.prevent="savePlaylist">

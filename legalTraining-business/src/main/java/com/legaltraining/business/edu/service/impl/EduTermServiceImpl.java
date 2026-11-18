@@ -180,6 +180,12 @@ public class EduTermServiceImpl implements IEduTermService
         int unreviewed = eduTermMapper.countUnreviewedSubmissions(termId);
         int unpublishedScores = eduTermMapper.countUnpublishedScores(termId);
         int pendingRecs = eduTermMapper.countPendingRecommendations(termId);
+        int missingTotals = eduTermMapper.countMissingCourseTotals(termId);
+
+        // F07：阻断项 = 未批阅提交 + 未发布成绩 + 缺失课程总评（P10 要求 P6 成绩汇总先完成）。
+        // 进行中任务、待处理成果推荐仍为提示项，不阻断归档。
+        int blockers = unreviewed + unpublishedScores + missingTotals;
+        boolean admin = SecurityUtils.isAdmin(SecurityUtils.getUserId());
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("termId", termId);
@@ -188,10 +194,12 @@ public class EduTermServiceImpl implements IEduTermService
         result.put("unreviewedSubmissions", unreviewed);
         result.put("unpublishedScores", unpublishedScores);
         result.put("pendingRecommendations", pendingRecs);
-        // 未批阅提交是唯一需要强制归档的阻断项，其余为提示项
-        result.put("needForce", unreviewed > 0);
-        result.put("canArchive", unreviewed == 0);
-        result.put("message", buildArchiveMessage(inProgressTasks, unreviewed, unpublishedScores, pendingRecs));
+        result.put("missingCourseTotals", missingTotals);
+        result.put("needForce", blockers > 0);
+        result.put("canArchive", blockers == 0);
+        // 强制归档仅管理员可用；阻断项>0 且非管理员时明确提示无权限
+        result.put("canForce", admin);
+        result.put("message", buildArchiveMessage(inProgressTasks, unreviewed, unpublishedScores, pendingRecs, missingTotals, admin));
         return result;
     }
 
@@ -211,13 +219,26 @@ public class EduTermServiceImpl implements IEduTermService
 
         Map<String, Object> report = checkArchive(termId);
         int unreviewed = (Integer) report.get("unreviewedSubmissions");
-        if (unreviewed > 0 && !force)
+        int unpublishedScores = (Integer) report.get("unpublishedScores");
+        int missingTotals = (Integer) report.get("missingCourseTotals");
+        int blockers = unreviewed + unpublishedScores + missingTotals;
+
+        if (blockers > 0)
         {
-            throw new ServiceException("存在 " + unreviewed + " 份未批阅提交，如需强制归档请填写原因");
-        }
-        if (unreviewed > 0 && StringUtils.isEmpty(reason))
-        {
-            throw new ServiceException("强制归档必须填写原因");
+            // F07：强制归档仅管理员可执行，且必须填写原因
+            if (!SecurityUtils.isAdmin(SecurityUtils.getUserId()))
+            {
+                throw new ServiceException("存在未完成的批阅或成绩汇总，仅系统管理员可强制归档");
+            }
+            if (!force)
+            {
+                throw new ServiceException(buildBlockerMessage(unreviewed, unpublishedScores, missingTotals)
+                        + "，请先完成成绩汇总，或由管理员强制归档并填写原因");
+            }
+            if (StringUtils.isEmpty(reason))
+            {
+                throw new ServiceException("强制归档必须填写原因");
+            }
         }
 
         // 未批提交在任务上留痕（"归档时未批"），再统一锁定任务状态
@@ -235,13 +256,10 @@ public class EduTermServiceImpl implements IEduTermService
         eduTermMapper.updateEduTerm(update);
     }
 
-    private String buildArchiveMessage(int inProgressTasks, int unreviewed, int unpublishedScores, int pendingRecs)
+    private String buildArchiveMessage(int inProgressTasks, int unreviewed, int unpublishedScores,
+            int pendingRecs, int missingTotals, boolean admin)
     {
         StringBuilder sb = new StringBuilder();
-        if (inProgressTasks > 0)
-        {
-            sb.append("进行中任务 ").append(inProgressTasks).append(" 个；");
-        }
         if (unreviewed > 0)
         {
             sb.append("未批阅提交 ").append(unreviewed).append(" 份；");
@@ -250,11 +268,54 @@ public class EduTermServiceImpl implements IEduTermService
         {
             sb.append("未发布成绩 ").append(unpublishedScores).append(" 条；");
         }
+        if (missingTotals > 0)
+        {
+            sb.append("缺失课程总评 ").append(missingTotals).append(" 人/课；");
+        }
+        if (inProgressTasks > 0)
+        {
+            sb.append("进行中任务 ").append(inProgressTasks).append(" 个；");
+        }
         if (pendingRecs > 0)
         {
             sb.append("待处理成果推荐 ").append(pendingRecs).append(" 条；");
         }
-        return sb.length() == 0 ? "无未完成事项，可正常归档" : sb.toString();
+        String blockers = buildBlockerMessage(unreviewed, unpublishedScores, missingTotals);
+        String hint;
+        if (blockers.isEmpty())
+        {
+            hint = "无未完成事项，可正常归档";
+        }
+        else if (!admin)
+        {
+            hint = blockers + "，仅系统管理员可强制归档";
+        }
+        else
+        {
+            hint = blockers + "，请完成成绩汇总，或强制归档并填写原因";
+        }
+        if (sb.length() == 0) return hint;
+        return hint + "（另：" + sb + "）";
+    }
+
+    private String buildBlockerMessage(int unreviewed, int unpublishedScores, int missingTotals)
+    {
+        StringBuilder sb = new StringBuilder();
+        if (unreviewed > 0)
+        {
+            sb.append("未批阅提交 ").append(unreviewed).append(" 份");
+        }
+        if (unpublishedScores > 0)
+        {
+            if (sb.length() > 0) sb.append("、");
+            sb.append("未发布成绩 ").append(unpublishedScores).append(" 条");
+        }
+        if (missingTotals > 0)
+        {
+            if (sb.length() > 0) sb.append("、");
+            sb.append("缺失课程总评 ").append(missingTotals).append(" 人/课");
+        }
+        return sb.toString();
     }
 
     private String currentUsername()

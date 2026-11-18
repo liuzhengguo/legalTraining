@@ -5,15 +5,22 @@ import PanoramaView from './PanoramaView.vue'
 import GalleryImage from './GalleryImage.vue'
 import lobbyImage from './assets/lobby.webp'
 import lobbyPanorama from './assets/lobby-panorama.png'
-import designPlan from './assets/exhibition-plan.webp'
-import lobbyMiniMap from './assets/lobby-mini-map.jpg'
+import courtPanorama from './assets/panoramas/court.png'
+import achievementPanorama from './assets/panoramas/achievement.png'
+import documentPanorama from './assets/panoramas/document.png'
+import mediationPanorama from './assets/panoramas/mediation.png'
+import compliancePanorama from './assets/panoramas/compliance.png'
+import exhibitionArchitecture from './assets/exhibition-architecture.webp'
 import courtHallScene from './assets/hall-court.webp'
 import achievementHallScene from './assets/hall-achievement.webp'
 import documentHallScene from './assets/hall-document.webp'
+import mediationHallScene from './assets/hall-mediation.webp'
+import complianceHallScene from './assets/hall-compliance.webp'
 
 const route = useRoute()
 const router = useRouter()
 const api = import.meta.env.VITE_GALLERY_API || '/gallery-api'
+const RESOURCE_TIMEOUT_MS = 5000
 const mediaOrigin = import.meta.env.VITE_GALLERY_MEDIA || ''
 const zones = ref([])
 const cards = ref([])
@@ -26,6 +33,8 @@ const loading = ref(false)
 const error = ref('')
 const copied = ref('')
 const showQr = ref(false)
+const shareCard = ref(null)
+const shareCardOpen = ref(false)
 const fullscreen = ref(false)
 const presentation = ref(false)
 const dismissWeak = ref(false)
@@ -50,14 +59,29 @@ const floorPlanOpen = ref(false)
 const floorPlanError = ref(false)
 const floorPlanPositions = readFloorPlanPositions(import.meta.env.VITE_GALLERY_PLAN_MARKERS)
 const zone = computed(() => zones.value.find(entry => String(entry.zoneId) === route.params.zoneId))
-// 子展厅主题：按展区名称匹配，三个展区各自一套视觉设计
 function themeForName(name = '') {
+  if (name.includes('调解')) return 'mediation'
+  if (name.includes('合规')) return 'compliance'
   if (name.includes('模拟法庭') || name.includes('法庭')) return 'court'
   if (name.includes('普法成果') || name.includes('成果')) return 'achievement'
   if (name.includes('法律文书') || name.includes('文书')) return 'document'
   return ''
 }
-const hallSceneImages = { court: courtHallScene, achievement: achievementHallScene, document: documentHallScene }
+const hallSceneImages = {
+  court: courtHallScene,
+  achievement: achievementHallScene,
+  document: documentHallScene,
+  mediation: mediationHallScene,
+  compliance: complianceHallScene
+}
+// 各主题的全景 VR 兜底素材（展区未配置 panoramaUrl 时按主题选用）
+const hallPanoramaImages = {
+  court: courtPanorama,
+  achievement: achievementPanorama,
+  document: documentPanorama,
+  mediation: mediationPanorama,
+  compliance: compliancePanorama
+}
 const zoneTheme = computed(() => themeForName(zone.value?.zoneName))
 function hallSceneFor(entry) {
   return hallSceneImages[themeForName(entry?.zoneName)] || lobbyImage
@@ -93,9 +117,12 @@ const vrScenes = computed(() => {
   const central = imageUrl(import.meta.env.VITE_GALLERY_LOBBY_PANORAMA_URL) || lobbyPanorama
   return [
     { id: 'lobby', name: '中央大厅', source: central },
-    ...zones.value.flatMap(entry => {
+    ...zones.value.map(entry => {
+      // 优先用后台配置的全景图；未配置时按展区主题选用兜底全景素材
       const source = imageUrl(entry.panoramaUrl)
-      return source ? [{ id: String(entry.zoneId), name: entry.zoneName, source }] : []
+        || hallPanoramaImages[themeForName(entry.zoneName)]
+        || central
+      return { id: String(entry.zoneId), name: entry.zoneName, source }
     })
   ]
 })
@@ -116,6 +143,34 @@ watch(vrSceneId, async (id, _, onCleanup) => {
 watch(() => route.fullPath, () => closePanorama())
 const sceneCarousel = ref(null)
 const sceneMap = ref(null)
+const planningDialog = ref(null)
+const planningOpen = ref(false)
+const planningSyncFailed = ref(false)
+const planningPage = ref(0)
+const planRooms = [
+  { labelY: 17, pin: [17, 39], route: [[27, 55], [18, 56], [17, 39]] },
+  { labelY: 17, pin: [38, 39], route: [[18, 56], [37, 50], [38, 39]] },
+  { labelY: 15, pin: [61, 36], route: [[37, 50], [61, 44], [61, 36]] },
+  { labelY: 18, pin: [84, 36], route: [[61, 44], [84, 42], [84, 36]] },
+  { labelY: 80, pin: [69, 56], route: [[84, 42], [58, 46], [69, 56]] }
+]
+const planningPageCount = computed(() => Math.max(1, Math.ceil(zones.value.length / planRooms.length)))
+const visiblePlanningRooms = computed(() => {
+  const start = planningPage.value * planRooms.length
+  return zones.value.slice(start, start + planRooms.length).map((entry, index) => ({
+    entry, room: planRooms[index], number: String(start + index + 1).padStart(2, '0')
+  }))
+})
+const planningLines = computed(() => {
+  const points = [[45, 77], [44, 57], ...visiblePlanningRooms.value.flatMap(({ room }) => room.route)]
+  return points.slice(1).map(([x, y], index) => {
+    const [left, top] = points[index]
+    const dx = x - left
+    const dy = (y - top) * 2 / 3
+    return { left: left + '%', top: top + '%', width: Math.hypot(dx, dy) + '%',
+      transform: 'rotate(' + Math.atan2(dy, dx) + 'rad)' }
+  })
+})
 const sceneIcons = {
   museum: 'M2 8 12 3l10 5H2Zm3 3v7m5-7v7m4-7v7m5-7v7M3 21h18',
   pin: 'M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0ZM12 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z',
@@ -128,6 +183,12 @@ const sceneIcons = {
   results: 'M3 21h18M6 17v-5m6 5V5m6 12V9'
 }
 const selectedLobbyZone = computed(() => lobbySelection.value >= 0 ? zones.value[lobbySelection.value] || null : null)
+// 小地图与规划图共用同一底图与坐标系：展区用 planRooms 的 pin，中央大厅定位在入口处
+const miniMapPinStyle = computed(() => {
+  const index = lobbySelection.value
+  const [x, y] = index < 0 ? [45, 80] : (planRooms[index % planRooms.length]?.pin || [45, 80])
+  return { left: x + '%', top: y + '%' }
+})
 const lobbyZones = computed(() => {
   const current = Math.max(0, lobbySelection.value)
   const start = Math.max(0, Math.min(current - 1, zones.value.length - 3))
@@ -138,19 +199,74 @@ function stepLobby(direction) {
   lobbySelection.value = (Math.max(0, lobbySelection.value) + direction + zones.value.length) % zones.value.length
 }
 function focusZoneSelection() {
-  sceneCarousel.value?.querySelector('[aria-pressed="true"]')?.focus()
+  if (!zones.value.length) return
+  // 中央大厅（未选中展区）时切到第一个展区，否则依次切到下一个并循环
+  lobbySelection.value = lobbySelection.value < 0 ? 0 : (lobbySelection.value + 1) % zones.value.length
+  nextTick(() => {
+    const active = sceneCarousel.value?.querySelector('[aria-pressed="true"]')
+    active?.focus()
+    active?.scrollIntoView?.({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  })
+}
+// 回到展厅首页（中央大厅）：切换展区只改了本地状态、路由仍是 /immersive，
+// 需显式重置选中态，否则点在 /immersive 上的"展厅首页"链接不会触发任何变化
+function goLobbyHome() {
+  lobbySelection.value = -1
+  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 const sceneSigns = computed(() => hallTheme.value ? [] : lobbyZones.value.map((entry, index) => ({ entry, index })))
 // 首页场景：中央大厅（默认）或所选子展厅的独立场景
 const hallTheme = computed(() => themeForName(selectedLobbyZone.value?.zoneName))
-const sceneImage = computed(() => hallSceneImages[hallTheme.value] || lobbyImage)
 const sceneTitle = computed(() => selectedLobbyZone.value?.zoneName || '走进法治文化数字空间')
 const sceneSubtitle = computed(() => selectedLobbyZone.value?.intro
   || (selectedLobbyZone.value ? '点击下方按钮进入展厅' : '数字普法教育 · 普法成果展示 · 法律文化博物馆'))
 function thumbnailStyle(entry) {
-  const image = hallSceneImages[themeForName(entry.zoneName)]
-  return image ? { backgroundImage: 'url(' + image + ')', backgroundSize: 'cover', backgroundPosition: 'center 54%' } : undefined
+  return { backgroundImage: 'url(' + planningCover(entry) + ')', backgroundSize: 'cover', backgroundPosition: 'center 54%' }
 }
+
+function planningCover(entry) {
+  return hallSceneImages[themeForName(entry.zoneName)] || sceneCardCover(entry.cover) || lobbyImage
+}
+
+function openPlanning() {
+  if (!planningDialog.value || planningDialog.value.open) return
+  planningSyncFailed.value = false
+  planningPage.value = Math.floor(Math.max(0, lobbySelection.value) / planRooms.length)
+  planningDialog.value.showModal()
+  planningOpen.value = true
+}
+
+function closePlanning() {
+  planningOpen.value = false
+  planningDialog.value?.close()
+}
+
+watch(() => route.fullPath, closePlanning)
+watch(planningOpen, (open, _, onCleanup) => {
+  if (!open) return
+  const controller = new AbortController()
+  async function refreshZones() {
+    if (loading.value) return
+    try {
+      const entries = await get('/zones', controller.signal)
+      if (controller.signal.aborted) return
+      if (!Array.isArray(entries)) throw new Error('展区数据无效')
+      const selectedId = selectedLobbyZone.value?.zoneId
+      zones.value = entries
+      lobbySelection.value = entries.findIndex(entry => entry.zoneId === selectedId)
+      planningPage.value = Math.min(planningPage.value, planningPageCount.value - 1)
+      planningSyncFailed.value = false
+    } catch {
+      if (!controller.signal.aborted) planningSyncFailed.value = true
+    }
+  }
+  refreshZones()
+  const timer = setInterval(refreshZones, 10000)
+  onCleanup(() => {
+    clearInterval(timer)
+    controller.abort()
+  })
+})
 
 function openPanorama() {
   const selectedId = String(selectedLobbyZone.value?.zoneId)
@@ -168,7 +284,7 @@ const sceneTools = [
   { icon: 'vr', label: () => 'VR 全景', action: openPanorama },
   { icon: 'music', label: () => musicPlaying.value ? '暂停音乐' : '背景音乐', action: () => musicSource ? toggleMusic() : (copied.value = '展厅尚未配置背景音乐') },
   { icon: 'share', label: () => '分享展厅', action: share },
-  { icon: 'home', label: () => '返回首页', action: () => { lobbySelection.value = -1; window.scrollTo({ top: 0, behavior: 'smooth' }) } }
+  { icon: 'home', label: () => '返回首页', action: goLobbyHome }
 ]
 const modePath = computed(() => lite.value ? '/lite' : '/immersive')
 const switchMode = computed(() => {
@@ -198,14 +314,52 @@ watch([loading, () => route.hash], async ([pending, hash]) => {
 })
 
 async function get(path, signal) {
-  const response = await fetch(api + path, { signal, cache: 'no-store' })
-  if (response.status === 410) {
-    const reason = await response.json().catch(() => ({}))
-    return { offline: true, zoneId: reason.zoneId, reasonType: reason.reasonType }
+  const controller = new AbortController()
+  const relayAbort = () => controller.abort()
+  if (signal) signal.addEventListener('abort', relayAbort)
+  const timer = setTimeout(() => controller.abort(), RESOURCE_TIMEOUT_MS)
+  try {
+    const response = await fetch(api + path, { signal: controller.signal, cache: 'no-store' })
+    if (response.status === 410) {
+      const reason = await response.json().catch(() => ({}))
+      return { offline: true, zoneId: reason.zoneId, reasonType: reason.reasonType }
+    }
+    if (!response.ok) throw new Error(response.status === 404 ? '内容暂不可访问' : '展厅加载失败，请刷新重试')
+    return (await response.json()).data
+  } catch (error) {
+    if (controller.signal.aborted && !(signal && signal.aborted)) throw new Error('展厅资源加载超时')
+    throw error
+  } finally {
+    clearTimeout(timer)
+    if (signal) signal.removeEventListener('abort', relayAbort)
   }
-  if (!response.ok) throw new Error(response.status === 404 ? '内容暂不可访问' : '展厅加载失败，请刷新重试')
-  return (await response.json()).data
 }
+
+function webglSupported() {
+  try {
+    const canvas = document.createElement('canvas')
+    return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')))
+  } catch {
+    return false
+  }
+}
+
+function degradeToLite(reason) {
+  if (lite.value || route.name === 'offline') return
+  const query = { ...route.query, degrade: reason || 'manual' }
+  if (route.params.itemId) {
+    return router.replace({ name: 'liteItem', params: { itemId: route.params.itemId }, query })
+  }
+  if (route.params.zoneId) {
+    return router.replace({ name: 'liteZone', params: { zoneId: route.params.zoneId }, query })
+  }
+  return router.replace({ name: 'lite', query })
+}
+
+const degradeText = computed(() => ({
+  timeout: '资源加载超时', webgl: '设备不支持 WebGL', panorama: '全景资源不可用',
+  assets: '素材加载失败', manual: '手动切换'
+}[route.query.degrade] || '弱网降级'))
 
 let temporarySession
 function visitSession() {
@@ -249,8 +403,11 @@ watch(() => route.fullPath, async (_, __, cleanup) => {
     window.addEventListener('pagehide', finishVisit)
   }
   const weakTimer = setTimeout(() => {
-    if (!lite.value && loading.value) weakNetwork.value = true
-  }, 5000)
+    if (!lite.value && loading.value) {
+      weakNetwork.value = true
+      degradeToLite('timeout')
+    }
+  }, RESOURCE_TIMEOUT_MS)
   cleanup(() => {
     controller.abort()
     finishVisit()
@@ -301,6 +458,10 @@ watch(() => route.fullPath, async (_, __, cleanup) => {
       if (controller.signal.aborted) return
       zones.value = nextZones
       cards.value = nextCards
+      if (!lite.value && !webglSupported()) {
+        await degradeToLite('webgl')
+        return
+      }
       if (zone.value) beginVisit('zone', zone.value.zoneId)
       if (route.name === 'zone' && !zone.value) error.value = '展区暂不可访问'
       if (zone.value && !lite.value) {
@@ -384,10 +545,12 @@ async function toggleMusic() {
 function onPanoramaError() {
   panoramaFailed.value = true
   weakNetwork.value = true
+  degradeToLite('panorama')
 }
 function onAssetError() {
   assetFailures.value += 1
-  if (assetFailures.value >= 2) weakNetwork.value = true
+  weakNetwork.value = true
+  if (assetFailures.value >= 2) degradeToLite('assets')
 }
 
 function imageUrl(value) {
@@ -418,14 +581,64 @@ function readFloorPlanPositions(value) {
   return positions
 }
 
+function shareTarget() {
+  if (detail.value) return { targetType: 'item', targetId: detail.value.itemId }
+  if (route.params.zoneId) return { targetType: 'zone', targetId: Number(route.params.zoneId) }
+  const selected = lobbyZones.value && lobbyZones.value[lobbySelection.value]
+  if (selected && selected.zoneId) return { targetType: 'zone', targetId: selected.zoneId }
+  return null
+}
+
+function trackShare(target, shareType) {
+  if (!target) return
+  const channel = ['qrcode', 'link', 'terminal', 'portal'].includes(route.query.channel) ? route.query.channel : 'link'
+  const body = JSON.stringify({ ...target, channel, shareType, session: visitSession() })
+  fetch(api + '/shares', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true
+  }).catch(() => {})
+}
+
+function shareUrlFor(target) {
+  // 大厅首页（未选展区/展项）时分享整个展厅入口；否则分享具体展项或展区
+  const path = !target ? '/lite?channel=link'
+    : target.targetType === 'item' ? '/lite/item/' + target.targetId + '?channel=link'
+    : '/lite/zone/' + target.targetId + '?channel=link'
+  return new URL(path, location.origin).href
+}
+
 async function share() {
-  const path = detail.value ? '/lite/item/' + detail.value.itemId + '?channel=link' : '/immersive?channel=link'
-  const url = new URL(path, location.origin)
+  const target = shareTarget()
+  if (target) trackShare(target, 'link')
+  const url = shareUrlFor(target)
   try {
-    await navigator.clipboard.writeText(url.href)
+    await navigator.clipboard.writeText(url)
     copied.value = '链接已复制'
   } catch {
-    copied.value = url.href
+    // 非安全上下文或剪贴板不可用时，展示链接供手动复制
+    copied.value = url
+  }
+}
+
+async function openShareCard() {
+  const target = shareTarget()
+  if (!target) return
+  try {
+    shareCard.value = await get('/share-card?targetType=' + target.targetType + '&targetId=' + target.targetId)
+    shareCardOpen.value = true
+    trackShare(target, 'card')
+  } catch {
+    copied.value = '分享信息暂不可用'
+  }
+}
+
+function systemShare() {
+  const target = shareTarget()
+  const url = shareUrlFor(target)
+  if (navigator.share && shareCard.value) {
+    navigator.share({ title: shareCard.value.title, text: shareCard.value.summary || '', url }).catch(() => {})
+    if (target) trackShare(target, 'system')
+  } else {
+    share()
   }
 }
 
@@ -454,12 +667,12 @@ async function openCase(id) {
         <div>云端数字展厅<small>法治文化数字展览平台</small></div>
       </RouterLink>
       <nav v-if="!lite" class="gallery-nav" aria-label="展厅导航">
-        <RouterLink to="/immersive" :aria-current="lobby ? 'page' : undefined">展厅首页</RouterLink>
+        <RouterLink to="/immersive" :aria-current="lobby ? 'page' : undefined" @click="goLobbyHome">展厅首页</RouterLink>
         <RouterLink :to="{ path: '/immersive', hash: '#gallery-zones' }">展馆导航</RouterLink>
       </nav>
-      <nav aria-label="展厅工具">
-        <RouterLink v-if="!lite || !detail" :to="switchMode">{{ lite ? '进入沉浸式展厅' : '图文模式' }}</RouterLink>
-        <button v-if="lobby && !lite" type="button" @click="share">分享</button>
+      <nav v-if="lite || (fullscreenAvailable && !lobby) || musicSource || zone || (floorPlan && planZones.length)"
+        class="gallery-tools" aria-label="展厅工具">
+        <RouterLink v-if="lite && !detail" :to="switchMode">进入沉浸式展厅</RouterLink>
         <template v-if="lite">
           <label>字号
             <select v-model.number="textScale"><option :value="1">标准</option><option :value="1.2">大</option><option :value="1.4">特大</option></select>
@@ -475,10 +688,6 @@ async function openCase(id) {
         <button v-if="zone && !lite" @click="presentation = true">讲解模式</button>
         <button v-if="floorPlan && planZones.length && !lite" type="button" @click="floorPlanOpen = !floorPlanOpen"
           :aria-expanded="floorPlanOpen" aria-controls="gallery-floor-plan">展馆平面图</button>
-        <details v-if="!lite">
-          <summary>浏览帮助</summary>
-          <p>从展区目录选择展区，点击封面上的热点或展项卡片可继续浏览。</p>
-        </details>
       </nav>
     </header>
     <section v-if="floorPlanOpen && !lite && !presentation && planZones.length" id="gallery-floor-plan" aria-label="展馆平面图">
@@ -500,8 +709,9 @@ async function openCase(id) {
     </nav>
     <p v-if="copied && !detail && !(lobby && !lite)" role="status">{{ copied }}</p>
     <p v-if="weakNetwork && !dismissWeak && !lite && !presentation" role="status">
-      展厅资源加载较慢，<RouterLink :to="switchMode">切换图文简版</RouterLink>
+      展厅资源加载较慢{{ route.query.degrade === 'webgl' ? '（设备不支持 WebGL）' : '' }}，<RouterLink :to="switchMode">切换图文简版</RouterLink>
       <button @click="dismissWeak = true">继续等待</button>
+      <button @click="degradeToLite('manual')">一键进入图文简版</button>
     </p>
     <section v-if="lobby && !lite" class="lobby-scene">
       <div class="scene-backdrop" aria-hidden="true">
@@ -509,7 +719,7 @@ async function openCase(id) {
           :style="{ '--layer-image': 'url(' + lobbyImage + ')' }"></span>
         <span v-for="entry in zones" :key="'bg-hall-' + entry.zoneId" class="scene-backdrop-layer"
           :class="{ 'is-active': selectedLobbyZone?.zoneId === entry.zoneId && !!hallTheme }"
-          :style="{ '--layer-image': 'url(' + (hallSceneImages[themeForName(entry.zoneName)] || lobbyImage) + ')' }"></span>
+          :style="{ '--layer-image': 'url(' + hallSceneFor(entry) + ')' }"></span>
       </div>
       <div class="scene-title">
         <h1>{{ sceneTitle }}</h1>
@@ -530,12 +740,12 @@ async function openCase(id) {
           </RouterLink>
         </nav>
       </div>
-      <button v-else type="button" class="scene-back-exit" @click="lobbySelection = -1">
+      <button v-else type="button" class="scene-back-exit" @click="goLobbyHome">
         <span aria-hidden="true">‹</span> 返回中央大厅
       </button>
       <aside class="scene-guide" aria-label="大厅导览">
         <div class="scene-guide-menu">
-          <button type="button" aria-controls="scene-map" @click="sceneMap.open = !sceneMap.open">
+          <button type="button" aria-haspopup="dialog" @click="openPlanning">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="sceneIcons.museum" /></svg>展馆总览
           </button>
           <div>
@@ -548,12 +758,53 @@ async function openCase(id) {
         </div>
         <details id="scene-map" ref="sceneMap" class="scene-map">
           <summary aria-label="展开或收起展馆空间规划">
-            <img :src="lobbyMiniMap" alt="中央大厅示意图">
-            <span>{{ selectedLobbyZone?.zoneName || '中央大厅' }} <b aria-hidden="true">⌃</b></span>
+            <span class="scene-map-canvas">
+              <img :src="exhibitionArchitecture" alt="展馆空间规划图">
+              <span class="scene-map-pin" :style="miniMapPinStyle" aria-hidden="true"></span>
+            </span>
+            <span class="scene-map-caption">{{ selectedLobbyZone?.zoneName || '中央大厅' }} <b aria-hidden="true">⌃</b></span>
           </summary>
-          <a :href="designPlan" target="_blank" rel="noopener">查看完整展馆规划 ↗</a>
+          <button type="button" class="scene-map-open" aria-haspopup="dialog" @click="openPlanning">查看完整展馆规划 ↗</button>
         </details>
       </aside>
+      <dialog ref="planningDialog" class="planning-dialog" aria-labelledby="planning-title" @close="planningOpen = false">
+        <header class="planning-header">
+          <div>
+            <h2 id="planning-title">现代法治文化数字展厅空间规划</h2>
+            <p>展区布局与参观动线</p>
+          </div>
+          <button type="button" autofocus @click="closePlanning">关闭</button>
+        </header>
+        <p v-if="planningSyncFailed" role="status">暂时无法同步展区，正在重试。</p>
+        <div class="planning-map">
+          <img :src="exhibitionArchitecture" class="planning-architecture" alt="展馆轴测建筑示意图">
+          <template v-if="visiblePlanningRooms.length">
+            <span v-for="(line, index) in planningLines" :key="index" class="planning-line" :style="line" aria-hidden="true"></span>
+            <span class="planning-entrance">↑ 入口</span>
+            <RouterLink v-for="{ entry, room, number } in visiblePlanningRooms" :key="entry.zoneId"
+              :to="modePath + '/zone/' + entry.zoneId" :aria-label="entry.zoneName"
+              :aria-current="entry.zoneId === selectedLobbyZone?.zoneId ? 'location' : undefined"
+              class="planning-pin" :class="{ 'planning-pin-below': room.labelY > room.pin[1] }"
+              :style="{ left: room.pin[0] + '%', top: room.pin[1] + '%', '--stem': Math.abs(room.pin[1] - room.labelY) * 2 / 3 + 'cqw' }"
+              @click="closePlanning">
+              <span class="planning-label"><span class="planning-number">{{ number }}</span><span>{{ entry.zoneName }}</span></span>
+            </RouterLink>
+          </template>
+        </div>
+        <nav v-if="visiblePlanningRooms.length" class="planning-legend" aria-label="参观动线">
+          <RouterLink v-for="{ entry, number } in visiblePlanningRooms" :key="entry.zoneId"
+            :to="modePath + '/zone/' + entry.zoneId" @click="closePlanning">
+            <span class="planning-number">{{ number }}</span>{{ entry.zoneName }}
+          </RouterLink>
+          <span class="planning-legend-route"><b aria-hidden="true">➜</b> 参观动线</span>
+        </nav>
+        <p v-else class="planning-empty">{{ loading ? '正在加载展区…' : '暂无开放展区' }}</p>
+        <div v-if="planningPageCount > 1" class="planning-pages">
+          <button type="button" :disabled="planningPage === 0" @click="planningPage--">上一页</button>
+          <span>{{ planningPage + 1 }} / {{ planningPageCount }}</span>
+          <button type="button" :disabled="planningPage === planningPageCount - 1" @click="planningPage++">下一页</button>
+        </div>
+      </dialog>
       <aside class="scene-tools" aria-label="场景工具">
         <button v-for="tool in sceneTools" :key="tool.icon" type="button" @click="tool.action">
           <span aria-hidden="true"><svg viewBox="0 0 24 24"><path :d="sceneIcons[tool.icon]" /></svg></span>
@@ -597,8 +848,7 @@ async function openCase(id) {
           <button type="button" class="scene-step" :disabled="zones.length < 2" @click="stepLobby(-1)">
             <span aria-hidden="true">‹</span>上一展区
           </button>
-          <button v-for="(entry, index) in lobbyZones" :key="entry.zoneId" type="button" class="scene-thumbnail"
-            :class="'scene-thumbnail--' + index"
+          <button v-for="entry in lobbyZones" :key="entry.zoneId" type="button" class="scene-thumbnail"
             :aria-pressed="entry.zoneId === selectedLobbyZone?.zoneId" @click="lobbySelection = zones.indexOf(entry)">
             <span class="scene-thumbnail-photo" :style="thumbnailStyle(entry)" aria-hidden="true"></span>
             <span class="scene-thumbnail-label">
@@ -677,9 +927,24 @@ async function openCase(id) {
           </article>
         </section>
         <button v-if="detail" @click="share">复制分享链接</button>
+        <button v-if="detail" @click="openShareCard">分享卡片</button>
         <button v-if="detail" @click="showQr = !showQr" :aria-expanded="showQr">{{ showQr ? '收起二维码' : '分享二维码' }}</button>
         <p v-if="showQr && detail"><img :src="api + '/items/' + detail.itemId + '/qr.png'" width="256" height="256" alt="展项分享二维码"></p>
         <p v-if="copied" role="status" class="copy-result">{{ copied }}</p>
+        <div v-if="shareCardOpen" class="share-modal" role="dialog" aria-label="分享卡片">
+          <div class="share-modal__panel">
+            <button type="button" class="share-modal__close" aria-label="关闭" @click="shareCardOpen = false">×</button>
+            <h3 v-if="shareCard">{{ shareCard.title }}</h3>
+            <GalleryImage v-if="shareCard && imageUrl(shareCard.cover)" :source="imageUrl(shareCard.cover)" class="share-modal__cover" />
+            <p v-if="shareCard && shareCard.summary">{{ shareCard.summary }}</p>
+            <p v-if="shareCard" class="muted">来源：{{ shareCard.source }}</p>
+            <img v-if="shareCard" :src="api + shareCard.qrUrl" width="180" height="180" alt="分享二维码" class="share-modal__qr">
+            <div class="share-modal__actions">
+              <button type="button" @click="share">复制链接</button>
+              <button type="button" @click="systemShare">系统分享</button>
+            </div>
+          </div>
+        </div>
       </div>
       <nav v-if="siblings.length > 1" class="exhibit-rail zone-links" aria-label="展项导航">
         <RouterLink v-if="itemIndex > 0" :to="modePath + '/item/' + siblings[itemIndex - 1].itemId">‹ 上一展项</RouterLink>
@@ -771,18 +1036,28 @@ async function openCase(id) {
       </section>
     </template>
     <div v-if="lite && detail" class="lite-mode-dock">
+      <p v-if="route.query.degrade" class="degrade-note">已切换至同内容图文简版（{{ degradeText }}）</p>
       <RouterLink :to="switchMode">进入沉浸式展厅</RouterLink>
     </div>
   </main>
 </template>
 
 <style scoped>
+.degrade-note { margin: 0 0 .5rem; color: var(--lt-muted, #666); font-size: .82rem; }
+.share-modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 1rem; background: #0008; }
+.share-modal__panel { position: relative; width: min(360px, 92vw); max-height: 86vh; overflow-y: auto; padding: 1.25rem; border-radius: 14px; background: var(--lt-field, #fff); color: var(--lt-ink, #222); text-align: center; }
+.share-modal__close { position: absolute; top: .5rem; right: .75rem; border: 0; background: none; font-size: 1.5rem; line-height: 1; cursor: pointer; }
+.share-modal__cover { width: 100%; max-height: 160px; object-fit: cover; border-radius: 8px; }
+.share-modal__qr { margin: .75rem auto; image-rendering: pixelated; }
+.share-modal__actions { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
 :global(html[data-mode="immersive"]), :global(body.mode-immersive), :global(body.mode-immersive #app) {
   background: #3d100e;
 }
 :global(body[data-hall="court"].mode-immersive) { background: #24100a; }
 :global(body[data-hall="achievement"].mode-immersive) { background: #571109; }
 :global(body[data-hall="document"].mode-immersive) { background: #2c1f12; }
+:global(body[data-hall="mediation"].mode-immersive) { background: #2d2119; }
+:global(body[data-hall="compliance"].mode-immersive) { background: #161c25; }
 .zone-page {
   --ex-bg: #3d100e;
   --ex-panel: #611d18;
@@ -806,6 +1081,10 @@ async function openCase(id) {
   padding-inline: clamp(1rem, 3vw, 2.5rem);
   background: linear-gradient(100deg, #661411, #7d211b 60%, #53110f);
 }
+@media (min-width: 900px) {
+  .scene-home .gallery-header { display: grid; grid-template-columns: 1fr auto 1fr; }
+  .scene-home .gallery-tools { justify-self: end; }
+}
 .scene-home > :not(.gallery-header, .lobby-scene, audio) { margin-inline: clamp(1rem, 4vw, 4rem); }
 .gallery-nav a[aria-current] { color: var(--ex-accent); border-bottom-color: var(--ex-accent); }
 .gallery-brand small { display: block; color: var(--ex-sub); font-weight: 500; font-size: .72rem; }
@@ -815,7 +1094,7 @@ a { color: inherit; }
   display: grid; place-items: center; width: 2.45rem; height: 2.45rem; border: 1px solid var(--gallery-rule);
   border-radius: .65rem; color: var(--ex-accent); font: 700 1.3rem "Songti SC", SimSun, serif;
 }
-.gallery-header nav > :is(a, button), .gallery-header summary, .zone-links > :is(a, button), .exhibit-detail button {
+.gallery-header nav > :is(a, button), .zone-links > :is(a, button), .exhibit-detail button {
   display: inline-flex;
   align-items: center;
   gap: .6rem;
@@ -829,24 +1108,10 @@ a { color: inherit; }
   font-size: .9rem;
   cursor: pointer;
 }
-.gallery-header nav > :is(a, button):hover, .gallery-header summary:hover, .zone-links > :is(a, button):hover,
+.gallery-header nav > :is(a, button):hover, .zone-links > :is(a, button):hover,
 .exhibit-detail button:hover { border-color: var(--ex-accent); }
 .zone-links > [aria-current] { border-color: var(--ex-accent); color: var(--ex-accent); }
 .zone-page :is(a, button, summary):focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 3px; }
-.gallery-header summary { display: list-item; }
-.gallery-header details { position: relative; }
-.gallery-header details p {
-  position: absolute;
-  z-index: 2;
-  inset-inline-end: 0;
-  width: min(17rem, 75vw);
-  padding: .85rem 1rem;
-  margin: .25rem 0 0;
-  border-radius: var(--ex-radius);
-  background: var(--ex-panel);
-  box-shadow: 0 .5rem 1.5rem color-mix(in srgb, var(--ex-bg) 65%, transparent);
-  font-weight: 400;
-}
 .lobby-scene {
   position: relative; display: grid; grid-template-rows: auto 1fr auto;
   min-height: calc(100svh - 4.65rem); padding: clamp(1.45rem, 5vh, 3.25rem) 5rem 1.4rem;
@@ -937,7 +1202,7 @@ a { color: inherit; }
 .scene-tools svg, .scene-guide-menu svg, .scene-thumbnail svg {
   width: 1.35rem; height: 1.35rem; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linejoin: round; stroke-linecap: round;
 }
-.scene-guide { position: absolute; bottom: 7.4%; left: 1.7%; width: clamp(8.5rem, 16.4vw, 20rem); z-index: 1; }
+.scene-guide { position: absolute; bottom: 7.4%; left: 1.7%; width: clamp(12rem, 21vw, 27rem); z-index: 1; }
 .scene-guide-menu { width: max-content; min-width: 62%; margin-bottom: .45rem; overflow: hidden; }
 .scene-guide-menu > * {
   display: flex; align-items: center; gap: .55rem; width: 100%; padding: .47rem .75rem; color: inherit; text-align: left;
@@ -949,11 +1214,97 @@ a { color: inherit; }
 .scene-map { overflow: hidden; }
 .scene-map summary { display: block; cursor: pointer; }
 .scene-map summary::-webkit-details-marker { display: none; }
+.scene-map-canvas { position: relative; display: block; }
 .scene-map img { display: block; width: 100%; }
-.scene-map summary span { display: block; padding: .36rem .65rem; text-align: center; border-top: 1px solid #e7ad7655; }
+.scene-map-pin { position: absolute; width: 2.2rem; height: 2.2rem; transform: translate(-50%, -50%); pointer-events: none; }
+.scene-map-pin::before, .scene-map-pin::after { content: ''; position: absolute; inset: 0; border-radius: 50%; }
+.scene-map-pin::before { border: 4px solid #ffd08a; background: radial-gradient(circle, #fff6e0 0 30%, #ff9d4d 55%, transparent 72%); box-shadow: 0 0 1.5rem .55rem #ffae5b99; }
+.scene-map-pin::after { border: 2px solid #ffbf6e; animation: scene-map-pulse 1.8s ease-out infinite; }
+@keyframes scene-map-pulse { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.9); opacity: 0; } }
+.scene-map-caption { display: block; padding: .36rem .65rem; text-align: center; border-top: 1px solid #e7ad7655; }
 .scene-map summary b { float: right; }
 .scene-map[open] summary b { transform: rotate(180deg); }
-.scene-map a { display: block; padding: .45rem .6rem; text-align: center; font-size: .78rem; }
+.scene-map-open { display: block; width: 100%; padding: .45rem .6rem; text-align: center; font-size: .78rem; }
+.planning-dialog {
+  width: min(73rem, calc(100% - 2rem), calc(135vh - 13rem)); max-height: 92vh;
+  padding: clamp(1rem, 2.5vw, 2rem);
+  box-sizing: border-box; overflow: auto; border: 1px solid #c5ae93; border-radius: .5rem;
+  color: #45241a; background: radial-gradient(ellipse at 50% 43%, #f8f0e5, #e8dccd);
+}
+.planning-dialog::backdrop { background: #170a07c9; }
+.planning-header { position: relative; text-align: center; padding-inline: 3rem; }
+.planning-header h2 { margin: 0; color: #851c1c; font-size: clamp(1.2rem, 3.4vw, 2.5rem); }
+.planning-header p { margin: .25rem 0 0; color: #64473c; letter-spacing: .2em; font-size: .83rem; }
+.planning-header button {
+  position: absolute; top: 0; right: 0; padding: .45rem .75rem; border: 1px solid #b99779;
+  border-radius: .35rem; color: #71251a; background: #fff6e9; cursor: pointer;
+}
+.planning-map {
+  position: relative; isolation: isolate; container-type: inline-size;
+  margin: -.1rem 0 0; aspect-ratio: 3 / 2;
+}
+.planning-architecture {
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%; mix-blend-mode: multiply;
+}
+.planning-line {
+  position: absolute; height: 2px; transform-origin: left center;
+  background: #ba2b24; box-shadow: 0 0 2px #fff4db; pointer-events: none;
+}
+.planning-line::after {
+  content: ''; position: absolute; top: 50%; left: 64%; width: .32rem; height: .32rem;
+  border: solid #ba2b24; border-width: 2px 2px 0 0; transform: translateY(-50%) rotate(45deg);
+}
+.planning-entrance {
+  position: absolute; left: 45%; top: 80%; transform: translateX(-50%);
+  color: #a51f1d; font-weight: 700; font-size: clamp(.65rem, 1.4vw, 1rem);
+}
+.planning-pin {
+  position: absolute; z-index: 2; width: .62rem; height: .62rem;
+  transform: translate(-50%, -50%); background: #8c1f20;
+  border: 1px solid #fff7e4; border-radius: 50%; box-shadow: 0 0 0 2px #96252154;
+}
+.planning-pin::before {
+  content: ''; position: absolute; left: 50%; bottom: 50%; height: var(--stem);
+  border-left: 1px solid #a0322d; pointer-events: none;
+}
+.planning-pin-below::before { top: 50%; bottom: auto; }
+.planning-label {
+  position: absolute; left: 50%; bottom: calc(50% + var(--stem)); transform: translateX(-50%);
+  display: flex; align-items: center; gap: .4rem; width: max-content; max-width: 19cqw;
+  padding: .24rem .65rem .24rem .32rem; border-radius: 1rem;
+  color: #fff7e8; background: #8b2020; font-size: clamp(.69rem, 1.3vw, .95rem);
+  line-height: 1.25; overflow-wrap: anywhere; box-shadow: 0 2px 5px #59302436;
+}
+.planning-pin-below .planning-label { top: calc(50% + var(--stem)); bottom: auto; }
+.planning-pin:is(:hover, :focus-visible, [aria-current]) { z-index: 3; }
+.planning-pin:is(:hover, :focus-visible, [aria-current]) .planning-label {
+  background: #561313; outline: 2px solid #f0bd70; outline-offset: 2px;
+}
+.planning-number {
+  display: inline-grid; place-items: center; flex: 0 0 1.32rem; width: 1.32rem; height: 1.32rem;
+  border-radius: 50%; color: #8b2020; background: #fff1df; font-size: .7rem; font-weight: 700;
+}
+.planning-legend {
+  display: flex; flex-wrap: wrap; gap: .5rem .8rem; width: fit-content; margin: -2rem 0 0 auto;
+  position: relative; padding: .62rem .8rem; border-radius: .4rem; border: 1px solid #d8c2a5;
+  color: #58372c; background: #fff8eb; font-size: .78rem;
+}
+.planning-legend > * { display: flex; align-items: center; gap: .3rem; color: inherit; }
+.planning-legend a:hover { text-decoration: underline; }
+.planning-legend .planning-number { color: #fff7e8; background: #8b2020; }
+.planning-legend-route b { color: #b52a22; }
+.planning-pages { display: flex; align-items: center; justify-content: center; gap: .7rem; margin-top: .8rem; }
+.planning-pages button { color: #71251a; border-color: #bc915e; }
+.planning-empty { text-align: center; }
+@media (max-width: 680px) {
+  .planning-dialog { width: calc(100% - 1rem); }
+  .planning-header { padding-inline: 0; padding-top: 2rem; }
+  .planning-label { padding: .14rem; }
+  .planning-label > span + span { display: none; }
+  .planning-legend { margin: 0; width: 100%; }
+  .planning-line { height: 1px; }
+  .planning-line::after { display: none; }
+}
 .scene-status {
   position: absolute; z-index: 2; top: .6rem; right: .8rem; max-width: calc(100% - 1.6rem); margin: 0;
   padding: .55rem .75rem; border-radius: .45rem; background: #561613; overflow-wrap: anywhere;
@@ -995,9 +1346,7 @@ a { color: inherit; }
   flex: 1 1 0; min-width: 0; padding: 0; overflow: hidden; text-align: center; cursor: pointer;
   color: var(--ex-text); background: #551813; border: 1px solid #ce8d62; border-radius: .48rem;
 }
-.scene-thumbnail-photo { display: block; height: clamp(2.8rem, 4vw, 5.25rem); background: var(--lobby-image) 5% 57% / 400% auto no-repeat; }
-.scene-thumbnail--1 .scene-thumbnail-photo { background-position: 33% 60%; }
-.scene-thumbnail--2 .scene-thumbnail-photo { background-position: 97% 58%; }
+.scene-thumbnail-photo { display: block; height: clamp(2.8rem, 4vw, 5.25rem); background-repeat: no-repeat; }
 .scene-thumbnail-label { display: flex; align-items: center; justify-content: center; gap: .3rem; padding: .28rem .25rem; font-size: .78rem; }
 .scene-thumbnail-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scene-thumbnail svg { flex: 0 0 auto; width: .95rem; height: .95rem; }
@@ -1129,6 +1478,20 @@ a { color: inherit; }
 .theme-document .zone-exhibits .item-card__summary { color: #6b4f2e; }
 .theme-document .zone-exhibits .zone-card__action { color: #a63f2e; }
 .theme-document .zone-exhibits .item-card__cover { border-bottom: 1px dashed #8a6b3d80; }
+.theme-mediation {
+  --ex-panel: #39291f; --ex-text: #fcf0db; --ex-sub: #e6c9a7;
+  --ex-accent: #c9ddbf; --ex-accent-2: #9cb595;
+  --gallery-rule: #9cb59555;
+}
+.theme-compliance {
+  --ex-panel: #202a38; --ex-text: #fff3dc; --ex-sub: #ddcbb0;
+  --ex-accent: #f1ca8b; --ex-accent-2: #c59155;
+  --gallery-rule: #c5915566;
+}
+.theme-mediation .zone-banner, .theme-compliance .zone-banner {
+  background: var(--ex-panel);
+  border: 1px solid var(--gallery-rule);
+}
 .gallery-empty {
   padding: 1.25rem clamp(1rem, 4vw, 2rem);
   background: var(--ex-panel);
@@ -1181,7 +1544,6 @@ button { font: inherit; padding: .45rem .8rem; cursor: pointer; }
 .lite-day { --ex-bg: #edf4fa; --ex-panel: #fff; --ex-text: #172437; --ex-sub: #425169; --ex-accent: #175c70; background: var(--ex-bg); }
 @media (max-width: 600px) {
   .gallery-header { padding-block: .9rem; }
-  .gallery-header details p { inset-inline: 0 auto; }
   .lobby-scene { grid-template-columns: minmax(0, 1fr); min-height: 31rem; padding: .9rem .6rem 1rem; }
   .scene-title { padding-inline: .25rem; }
   .scene-title h1 { font-size: clamp(1.5rem, 6.5vw, 2.2rem); }
@@ -1195,8 +1557,9 @@ button { font: inherit; padding: .45rem .8rem; cursor: pointer; }
   .scene-guide-menu > * + * { border-top: 0; border-left: 1px solid #efab7133; }
   .scene-guide-menu svg { width: .85rem; height: .85rem; padding: .2rem; }
   .scene-map { width: 100%; }
-  .scene-map img { display: none; }
-  .scene-map[open] img { display: block; max-width: 12rem; margin-inline: auto; }
+  .scene-map img, .scene-map-pin { display: none; }
+  .scene-map[open] .scene-map-canvas { max-width: 12rem; margin-inline: auto; }
+  .scene-map[open] img, .scene-map[open] .scene-map-pin { display: block; }
   .scene-dock { grid-row: 4; width: 100%; margin-bottom: 0; }
   .scene-carousel { gap: .3rem; }
   .scene-step { font-size: .62rem; }

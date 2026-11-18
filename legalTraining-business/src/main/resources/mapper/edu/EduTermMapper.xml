@@ -153,6 +153,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         join edu_course c on c.course_id = t.course_id
         where c.term_id = #{termId} and r.status in (0, 1)
     </select>
+
+    <!-- F07：存在已发布任务成绩、但尚无已发布课程总评的学生-课程数（P6 汇总必须先完成） -->
+    <select id="countMissingCourseTotals" resultType="int">
+        select count(1) from (
+            select distinct s.course_id, s.user_id
+            from edu_score s
+            join edu_task t on t.task_id = s.task_id and t.del_flag = '0'
+            join edu_course c on c.course_id = t.course_id and c.del_flag = '0'
+            where c.term_id = #{termId} and s.status &gt;= 1
+              and not exists (
+                  select 1 from edu_course_score cs
+                  where cs.course_id = s.course_id and cs.user_id = s.user_id and cs.status = 1
+              )
+        ) x
+    </select>
     <update id="archiveTasks">
         update edu_task t
         join edu_course c on c.course_id = t.course_id

@@ -7,6 +7,7 @@
         </el-select>
       </el-form-item>
       <el-button type="primary" native-type="submit" :disabled="!taskId">刷新</el-button>
+      <el-button v-hasPermi="['edu:review:batch']" :disabled="!taskId || !selected.length" @click="openBatch">批量批阅（{{ selected.length }}）</el-button>
       <el-button v-hasPermi="['edu:score:publish']" :disabled="!taskId" @click="publishScores">发布任务成绩</el-button>
     </el-form>
     <el-form v-if="teamSettings" inline>
@@ -14,14 +15,15 @@
         <el-switch :value="teamSettings.anyMemberSubmit" :disabled="saving || !$auth.hasPermi('edu:task:edit')" @change="changeTeamSettings" />
       </el-form-item>
     </el-form>
-    <el-table v-loading="loading" :data="rows" row-key="submissionId" empty-text="请选择任务，或该任务暂无待处理作业">
+    <el-table ref="reviewTable" v-loading="loading" :data="rows" row-key="submissionId" empty-text="请选择任务，或该任务暂无待处理作业" @selection-change="onSelect">
+      <el-table-column type="selection" width="42" :selectable="row => row.lateApplyStatus !== 1" />
       <el-table-column prop="studentNo" label="学号" />
       <el-table-column prop="studentName" label="学生" />
       <el-table-column prop="version" label="当前版本" />
       <el-table-column label="状态">
         <template slot-scope="{ row }">{{ row.lateApplyStatus === 1 ? '待审批补交' : '待批阅' }}</template>
       </el-table-column>
-      <el-table-column label="操作" fixed="right" align="right" width="140">
+      <el-table-column label="操作" fixed="right" align="center" width="140" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <el-button type="text" @click="open(row)">{{ row.lateApplyStatus === 1 ? '审批' : '查看并批阅' }}</el-button>
         </template>
@@ -34,7 +36,7 @@
         <el-table-column prop="studentNo" label="学号" />
         <el-table-column prop="studentName" label="学生" />
         <el-table-column prop="version" label="版本" />
-        <el-table-column label="操作" width="155" fixed="right" align="right">
+        <el-table-column label="操作" width="155" fixed="right" align="center" class-name="nowrap-actions">
           <template slot-scope="{ row }">
             <el-button type="text" :disabled="saving" @click="migrateLegacy(row)">迁移为小组作业</el-button>
           </template>
@@ -57,8 +59,7 @@
           <el-form-item v-if="current.files && current.files.length" label="附件">
             <ul>
               <li v-for="file in current.files" :key="file.fileId">
-                <a v-if="fileUrl(file.fileId)" :href="fileUrl(file.fileId)" target="_blank" rel="noopener noreferrer">{{ file.fileName }}</a>
-                <span v-else>{{ file.fileName }}</span>
+                <a href="javascript:;" @click="openAttachment(file)">{{ file.fileName }}</a>
               </li>
             </ul>
           </el-form-item>
@@ -73,6 +74,11 @@
               </el-form-item>
             </template>
             <el-form-item v-else label="得分"><el-input-number v-model="totalScore" :min="0" :max="taskDetail.totalScore" :precision="2" /></el-form-item>
+            <el-form-item label="常用评语">
+              <el-select v-model="pickedComment" clearable placeholder="选择常用评语插入" style="width: 100%" @change="applyComment">
+                <el-option v-for="(text, idx) in commonComments" :key="idx" :label="text" :value="idx" />
+              </el-select>
+            </el-form-item>
             <el-form-item label="评语"><el-input v-model="reviewComment" type="textarea" maxlength="2000" /></el-form-item>
           </template>
         </template>
@@ -92,6 +98,22 @@
         </template>
       </span>
     </el-dialog>
+    <el-dialog :visible.sync="batchOpen" title="批量批阅" width="min(560px, 95vw)" append-to-body>
+      <p class="batch-tip">将对已选的 {{ selected.length }} 份作业统一发布批阅结果（仅百分制任务，等级制请逐条批阅）。</p>
+      <el-form label-width="100px">
+        <el-form-item label="统一得分"><el-input-number v-model="batchScore" :min="0" :max="taskDetail.totalScore || 100" :precision="2" /></el-form-item>
+        <el-form-item label="常用评语">
+          <el-select v-model="batchPicked" clearable placeholder="选择常用评语插入" style="width: 100%" @change="v => batchComment = v == null ? batchComment : commonComments[v]">
+            <el-option v-for="(text, idx) in commonComments" :key="idx" :label="text" :value="idx" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="评语"><el-input v-model="batchComment" type="textarea" maxlength="2000" /></el-form-item>
+      </el-form>
+      <span slot="footer">
+        <el-button @click="batchOpen = false">取消</el-button>
+        <el-button type="primary" :loading="saving" :disabled="batchScore == null" @click="doBatch">确认批量发布</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
@@ -104,14 +126,60 @@ export default {
     return {
       taskId: null, tasks: [], rows: [], current: null, taskDetail: {}, items: [],
       legacyRows: [], teamMembers: [], teamSettings: null, loading: false, saving: false, visible: false, returning: false, deadline: null,
-      reason: '', reviewComment: '', totalScore: 0
+      reason: '', reviewComment: '', totalScore: 0, attachmentUrls: {},
+      selected: [], commonComments: [], pickedComment: null,
+      batchOpen: false, batchScore: 0, batchComment: '', batchPicked: null
     }
   },
   async created() {
+    const defaults = [
+      '完成度较高，思路清晰，继续保持良好的学习习惯。',
+      '基本完成要求，部分细节需要完善，请对照评价标准再作修改。',
+      '分析较为深入，能够结合实际案例，论证充分。',
+      '存在概念性错误，请重新梳理相关知识点后再提交。',
+      '材料详实、结构完整，符合规范要求。'
+    ]
+    try {
+      const saved = JSON.parse(localStorage.getItem('edu.review.commonComments') || 'null')
+      this.commonComments = Array.isArray(saved) && saved.length ? saved : defaults
+    } catch (e) { this.commonComments = defaults }
     const result = await request({ url: '/edu/task/list', params: { pageNum: 1, pageSize: 100 } })
     this.tasks = result.rows
   },
   methods: {
+    onSelect(rows) { this.selected = rows },
+    applyComment(idx) {
+      if (idx == null) return
+      const text = this.commonComments[idx]
+      if (text) this.reviewComment = this.reviewComment ? this.reviewComment + '\n' + text : text
+      this.pickedComment = null
+    },
+    openBatch() {
+      if (this.taskDetail.scoreMode === 2) {
+        return this.$modal.msgWarning('多维度评分任务请逐条批阅')
+      }
+      this.batchScore = 0
+      this.batchComment = ''
+      this.batchPicked = null
+      this.batchOpen = true
+    },
+    async doBatch() {
+      if (this.saving || this.batchScore == null || !this.selected.length) return
+      const items = this.selected.map(row => ({ submissionId: row.submissionId,
+        totalScore: this.batchScore, reviewComment: this.batchComment }))
+      this.saving = true
+      try {
+        const { data } = await request({ url: '/edu/review/batch', method: 'post', data: items })
+        this.batchOpen = false
+        this.selected = []
+        this.$refs.reviewTable && this.$refs.reviewTable.clearSelection && this.$refs.reviewTable.clearSelection()
+        const msg = data && data.fail > 0
+          ? `批量批阅完成：成功 ${data.ok || 0} 份，失败 ${data.fail} 份`
+          : `批量批阅完成：成功 ${(data && data.ok) || items.length} 份`
+        this.$modal.msgSuccess(msg)
+        await this.load()
+      } finally { this.saving = false }
+    },
     async migrateLegacy(row) {
       const taskId = this.taskId
       try { await this.$modal.confirm('将该学生的旧版作业作为小组共享作业？原作业编号、附件和版本保留。') } catch { return }
@@ -209,14 +277,36 @@ export default {
       await this.$modal.confirm('确认发布该任务已批阅的成绩？')
       return this.perform({ url: '/edu/score/publish/' + taskId, method: 'post' }, '成绩已发布')
     },
-    fileUrl(fileId) {
-      return typeof fileId === 'string' && /^\/profile\/upload\/[\w./-]+$/.test(fileId) && !fileId.includes('..')
-        ? process.env.VUE_APP_BASE_API + fileId : ''
+    // F01：批阅附件走带业务鉴权的接口取 blob，不再拼 /profile 静态直链
+    async openAttachment(file) {
+      const key = file.fileId
+      try {
+        let url = this.attachmentUrls[key]
+        if (!url) {
+          const blob = await request({
+            url: '/edu/submission/' + this.current.submissionId + '/files/' + encodeURIComponent(key) + '/content',
+            responseType: 'blob'
+          })
+          if (!(blob instanceof Blob) || blob.type.includes('json')) {
+            this.$modal.msgError('附件读取失败或无权访问')
+            return
+          }
+          url = URL.createObjectURL(blob)
+          this.$set(this.attachmentUrls, key, url)
+        }
+        window.open(url, '_blank', 'noopener,noreferrer')
+      } catch (e) {
+        this.$modal.msgError('附件读取失败或无权访问')
+      }
     }
+  },
+  beforeDestroy() {
+    Object.values(this.attachmentUrls).forEach(url => URL.revokeObjectURL(url))
   }
 }
 </script>
 
 <style scoped>
 .submission-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.batch-tip { color: #606266; line-height: 1.6; margin-top: 0; }
 </style>

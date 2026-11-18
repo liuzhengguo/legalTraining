@@ -16,6 +16,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         select count(1) from edu_recommendation where status = 1
     </select>
 
+    <update id="transferTeacherCourses">
+        update edu_course set teacher_id = #{toUserId}, update_time = now()
+        where teacher_id = #{fromUserId} and del_flag = '0'
+    </update>
+
+    <update id="transferPendingAudits">
+        update edu_recommendation set auditor_id = #{toUserId}, update_time = now()
+        where status = 1
+    </update>
+
+    <insert id="insertTransferNotice">
+        insert into ops_notification(event_code, receiver_id, title, content, biz_type, biz_id, channel, is_read, send_time)
+        values('ROLE-TRANSFER', #{receiverId}, #{title}, #{content}, 'auth', #{receiverId}, 'inner', '0', now())
+    </insert>
+
     <select id="selectClassDeptId" resultType="java.lang.Long">
         select dept_id from edu_class where class_id = #{classId} and del_flag = '0'
     </select>

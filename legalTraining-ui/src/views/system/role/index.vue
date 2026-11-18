@@ -118,7 +118,7 @@
           <span>{{ parseTime(scope.row.createTime) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="185" fixed="right" align="right" class-name="small-padding fixed-width">
+      <el-table-column label="操作" width="185" fixed="right" align="center" class-name="small-padding fixed-width nowrap-actions">
         <template slot-scope="scope" v-if="scope.row.roleId !== 1">
           <el-button
             size="mini"

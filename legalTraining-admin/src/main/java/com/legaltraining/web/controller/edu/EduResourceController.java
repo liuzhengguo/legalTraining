@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.legaltraining.business.edu.domain.EduCourseResourceRef;
 import com.legaltraining.business.edu.domain.EduResource;
 import com.legaltraining.business.edu.domain.EduResourceCategory;
 import com.legaltraining.business.edu.service.IEduResourceService;
@@ -37,6 +38,9 @@ public class EduResourceController extends BaseController
 {
     @Autowired
     private IEduResourceService eduResourceService;
+
+    @Autowired
+    private com.legaltraining.business.edu.scope.BusinessScopeChecker scope;
 
     @PreAuthorize("@ss.hasPermi('edu:resource:list')")
     @GetMapping("/list")
@@ -137,6 +141,28 @@ public class EduResourceController extends BaseController
     public AjaxResult unlinkCourse(@PathVariable Long resourceId, @PathVariable Long courseId)
     {
         return toAjax(eduResourceService.unlinkCourse(courseId, resourceId));
+    }
+
+    /**
+     * 课程维度批量维护资源投放与顺序（TC-02-01）
+     * 提交顺序即学生课程资料里的展示顺序；空数组表示撤下该课程全部资源。
+     */
+    @Log(title = "课程资源投放", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('edu:resource:edit')")
+    @PutMapping("/course/{courseId}")
+    public AjaxResult saveCourseResources(@PathVariable Long courseId,
+            @RequestBody List<EduCourseResourceRef> refs)
+    {
+        scope.requireCourseAccess(courseId);
+        return toAjax(eduResourceService.saveCourseResources(courseId, refs));
+    }
+
+    /** 资源已投放的课程 ID 列表（资源页反向维护用） */
+    @PreAuthorize("@ss.hasPermi('edu:resource:query')")
+    @GetMapping("/{resourceId}/courses")
+    public AjaxResult coursesOfResource(@PathVariable Long resourceId)
+    {
+        return success(eduResourceService.selectCourseIdsByResource(resourceId));
     }
 
     /**

@@ -1,6 +1,8 @@
 package com.legaltraining.web.controller.exh;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -8,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.legaltraining.common.exception.ServiceException;
+import com.legaltraining.web.controller.ops.NotificationDispatcher;
 
 @Component
 public class ExhibitScheduleWorker
@@ -16,12 +19,15 @@ public class ExhibitScheduleWorker
     private final JdbcTemplate jdbc;
     private final ExhibitController exhibits;
     private final TransactionTemplate transactions;
+    private final NotificationDispatcher dispatcher;
 
-    public ExhibitScheduleWorker(JdbcTemplate jdbc, ExhibitController exhibits, TransactionTemplate transactions)
+    public ExhibitScheduleWorker(JdbcTemplate jdbc, ExhibitController exhibits,
+            TransactionTemplate transactions, NotificationDispatcher dispatcher)
     {
         this.jdbc = jdbc;
         this.exhibits = exhibits;
         this.transactions = transactions;
+        this.dispatcher = dispatcher;
     }
 
     @Scheduled(fixedDelayString = "${legaltraining.exhibit.schedule-delay-ms:15000}")
@@ -55,12 +61,28 @@ public class ExhibitScheduleWorker
                     reason, itemId);
             if (changed == 0) return;
             log.warn("定时发布展项 {} 失败", itemId, failure);
-            jdbc.update("insert into ops_notification(event_code,receiver_id,title,content,biz_type,biz_id,send_time) "
-                    + "select distinct 'NT-11',u.user_id,'展项定时发布失败',j.fail_reason,'exhibit',j.item_id,now() "
-                    + "from exh_publish_job j join sys_user u on u.status='0' and u.del_flag='0' "
-                    + "where j.item_id=? and j.status=2 and (u.user_id=j.operator_id or u.user_id=1 "
-                    + "or exists(select 1 from sys_user_role ur join sys_role r on r.role_id=ur.role_id "
-                    + "where ur.user_id=u.user_id and r.role_key='registrar' and r.status='0' and r.del_flag='0'))", itemId);
+            notifyFinalFailure(itemId, reason);
         });
+    }
+
+    /** 终次失败按模板通知操作人、管理员与教务，便于运营复验 */
+    private void notifyFinalFailure(long itemId, String reason)
+    {
+        List<Long> receivers = new java.util.ArrayList<>(jdbc.queryForList(
+                "select distinct operator_id from exh_publish_job where item_id=? and operator_id is not null",
+                Long.class, itemId));
+        receivers.add(1L);
+        receivers.addAll(jdbc.queryForList(
+                "select distinct ur.user_id from sys_user_role ur join sys_role r on r.role_id=ur.role_id "
+                + "where r.role_key='registrar'", Long.class));
+        String title = jdbc.queryForObject("select title from exh_item where item_id=?", String.class, itemId);
+        Map<String, Object> vars = new LinkedHashMap<>();
+        vars.put("itemTitle", title);
+        vars.put("failReason", reason);
+        vars.put("retry", 3);
+        for (Long receiver : receivers.stream().distinct().toList())
+        {
+            dispatcher.send("NT-11", receiver, vars, "exhibit", itemId);
+        }
     }
 }

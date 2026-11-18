@@ -18,6 +18,7 @@
       </template>
       <template #actions="{ row, reload }">
         <el-button v-hasPermi="['edu:resource:edit']" type="text" @click="changeStatus(row, reload)">{{ row.status === 0 ? '下架' : '上架' }}</el-button>
+        <el-button v-hasPermi="['edu:resource:edit']" type="text" @click="openCourses(row)">投放到课程</el-button>
         <el-button v-hasPermi="['edu:resource:query']" type="text" @click="openResource(row)">查看资源</el-button>
       </template>
     </BusinessRecords>
@@ -29,6 +30,23 @@
       <audio v-else-if="previewType.startsWith('audio/')" :src="previewUrl" controls />
       <video v-else-if="previewType.startsWith('video/')" :src="previewUrl" controls style="max-width:100%" />
       <iframe v-else-if="previewUrl" :src="previewUrl" title="文档预览" style="width:100%;height:60vh" />
+    </el-dialog>
+    <el-dialog :visible.sync="courseOpen" title="投放到课程" width="560px" destroy-on-close>
+      <el-alert type="info" :closable="false" show-icon class="biz-tip"
+        title="勾选要投放的课程，取消勾选即撤下；学生刷新课程即可看到生效资料。" />
+      <div v-loading="courseLoading" class="course-picker">
+        <el-checkbox-group v-model="selectedCourseIds">
+          <div v-for="course in courseOptions" :key="course.courseId" class="course-row">
+            <el-checkbox :label="course.courseId">{{ course.courseName }}</el-checkbox>
+            <span class="course-term">{{ course.termName }}</span>
+          </div>
+        </el-checkbox-group>
+        <div v-if="!courseOptions.length && !courseLoading" class="course-empty">暂无可投放的课程</div>
+      </div>
+      <span slot="footer">
+        <el-button @click="courseOpen = false">取消</el-button>
+        <el-button type="primary" :loading="courseSaving" @click="saveCourses">保存投放</el-button>
+      </span>
     </el-dialog>
   </div>
 </template>
@@ -64,6 +82,9 @@ export default {
       checkStrictly: true, expandTrigger: 'hover', emitPath: false }
     return {
       uploading: false,
+      classOptions: [],
+      courseOpen: false, courseLoading: false, courseSaving: false,
+      courseOptions: [], selectedCourseIds: [], linkedCourseIds: [], courseResourceId: null,
       categoriesOpen: false,
       previewOpen: false,
       previewUrl: '',
@@ -92,8 +113,9 @@ export default {
       config: {
         title: '资源管理', base: '/edu/resource', permission: 'edu:resource', id: 'resourceId',
         paged: true, remove: true, rowActions: true,
+        actionColumn: { align: 'center', width: 320, className: 'resource-actions' },
         defaults: { resType: 'doc', visibleScope: 1, allowDownload: '0' },
-        beforeOpen: () => this.loadCategories(),
+        beforeOpen: () => { this.loadCategories(); this.loadClasses() },
         saveDisabled: () => this.uploading,
         filters: [
           { key: 'title', label: '名称' },
@@ -108,6 +130,9 @@ export default {
           { key: 'externalUrl', label: '外链地址', placeholder: 'https://…',
             visible: form => form.resType === 'link', required: form => form.resType === 'link' },
           { key: 'visibleScope', label: '可见范围', required: true, options: VISIBLE_SCOPES },
+          { key: 'classId', label: '归属班级', placeholder: '本班资源必须选择归属班级',
+            options: () => this.classOptions, visible: form => form.visibleScope === 2,
+            required: form => form.visibleScope === 2 },
           { key: 'allowDownload', label: '下载权限', required: true,
             options: [{ label: '允许下载', value: '1' }, { label: '仅在线预览', value: '0' }] },
           { key: 'fileId', hidden: true }, { key: 'fileName', hidden: true },
@@ -118,6 +143,7 @@ export default {
           { key: 'resType', label: '类型', format: value => labelOf(RES_TYPES, value) },
           { key: 'categoryName', label: '分类' },
           { key: 'visibleScope', label: '可见范围', format: value => labelOf(VISIBLE_SCOPES, value) },
+          { key: 'className', label: '归属班级', format: value => value || '—' },
           { key: 'allowDownload', label: '下载权限', format: value => value === '1' ? '允许下载' : '仅预览' },
           { key: 'status', label: '状态', format: value => value === 0 ? '已上架' : '已下架' },
           { key: 'refCount', label: '引用次数' },
@@ -130,8 +156,54 @@ export default {
   watch: {
     categoriesOpen(open) { if (!open) this.loadCategories() }
   },
-  created() { this.loadCategories() },
+  created() { this.loadCategories(); this.loadClasses() },
   methods: {
+    // F03：加载班级选项，供"本班"资源选择归属班级
+    async loadClasses() {
+      try {
+        const { data } = await request({ url: '/edu/course/options' })
+        const terms = new Map((data.terms || []).map(t => [t.termId, t.termName]))
+        this.classOptions = (data.classes || []).map(c => ({
+          value: c.classId,
+          label: [c.className, terms.get(c.termId)].filter(Boolean).join(' · ')
+        }))
+      } catch (e) { this.classOptions = [] }
+    },
+    // 反向入口：从资源页维护该资源投放到了哪些课程（TC-02-01）
+    async openCourses(row) {
+      this.courseResourceId = row.resourceId
+      this.courseOpen = true
+      this.courseLoading = true
+      try {
+        const [courses, linked] = await Promise.all([
+          request({ url: '/edu/course/list', params: { pageNum: 1, pageSize: 1000 } }),
+          request({ url: '/edu/resource/' + row.resourceId + '/courses' })
+        ])
+        this.courseOptions = (courses.rows || []).filter(course => course.status !== 2)
+        this.linkedCourseIds = linked.data || []
+        this.selectedCourseIds = this.linkedCourseIds.slice()
+      } finally { this.courseLoading = false }
+    },
+    async saveCourses() {
+      if (this.courseSaving) return
+      this.courseSaving = true
+      try {
+        const before = new Set(this.linkedCourseIds)
+        const after = new Set(this.selectedCourseIds)
+        for (const courseId of before) {
+          if (!after.has(courseId)) {
+            await request({ url: '/edu/resource/' + this.courseResourceId + '/course/' + courseId, method: 'delete' })
+          }
+        }
+        for (const courseId of after) {
+          if (!before.has(courseId)) {
+            await request({ url: '/edu/resource/' + this.courseResourceId + '/course/' + courseId, method: 'post' })
+          }
+        }
+        this.courseOpen = false
+        this.$modal.msgSuccess('课程投放已更新')
+      } finally { this.courseSaving = false }
+    },
     openCategories() { this.categoriesOpen = true },
     async loadCategories() {
       try {
@@ -178,7 +250,7 @@ export default {
       data.append('file', file)
       this.uploading = true
       try {
-        const response = await request({ url: '/common/upload', method: 'post',
+        const response = await request({ url: '/common/upload/secure', method: 'post',
           headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, data })
         this.$set(form, 'fileId', response.fileName)
         this.$set(form, 'fileName', file.name)
@@ -220,6 +292,14 @@ export default {
 </script>
 
 <style scoped>
+::v-deep .resource-actions > .cell {
+  white-space: nowrap;
+  text-overflow: clip;
+}
 .biz-tip { margin-bottom: 12px; }
 .file-hint { color: #606266; font-size: 12px; margin-top: 4px; }
+.course-picker { max-height: 46vh; overflow-y: auto; }
+.course-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+.course-term { color: #909399; font-size: 12px; }
+.course-empty { color: #909399; font-size: 13px; padding: 12px 0; }
 </style>

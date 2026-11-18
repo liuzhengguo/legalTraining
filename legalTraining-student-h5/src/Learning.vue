@@ -1,15 +1,19 @@
 <script setup>
 import LegalAssistant from './LegalAssistant.vue'
 import assistantAvatar from './assets/xiaolvfa-avatar.jpg'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showSuccessToast } from 'vant'
 import { profileImageUrl, request } from './api'
 import LinkedCases from './LinkedCases.vue'
+import { navigation as sharedNavigation } from './navigation'
 
 const route = useRoute()
 const router = useRouter()
 const data = ref(null)
+const currentClasses = ref(null)
+const currentClassLabel = computed(() => currentClasses.value === null
+  ? '加载中…' : currentClasses.value.map(entry => entry.className).join('、') || '暂未分班')
 const busy = ref(false)
 const loading = ref(false)
 const error = ref('')
@@ -18,6 +22,13 @@ const content = ref('')
 const teamInfo = ref(null)
 const editors = ref([])
 const draftFocused = ref(false)
+const autoSaveState = ref('')
+const lastAutoSaved = ref('')
+const draftDirty = ref(false)
+let autoSaveTimer = null
+let autoSaving = false
+let pendingAutoSave = false
+let suppressAutoSave = false
 
 watch(() => [route.params.taskId, teamInfo.value?.team?.confirmed, draftFocused.value], ([taskId, confirmed, focused], _, cleanup) => {
   if (!taskId || !confirmed) {
@@ -52,9 +63,11 @@ const appealReason = ref('')
 const appealStatuses = ['待处理', '维持成绩', '已更正']
 const preview = ref(null)
 const authorization = ref({ signMode: '完全匿名', scope: '仅展厅内' })
-const galleryBase = (import.meta.env.VITE_GALLERY_BASE || (import.meta.env.DEV ? 'http://localhost:5174' : '')).replace(/\/$/, '')
-function galleryUrl(entry) {
-  return galleryBase + '/immersive/' + entry.targetType + '/' + entry.targetId
+// 关联展厅内容在 App 内打开，保持移动端体验一致。
+function galleryRoute(entry) {
+  return entry.targetType === 'zone'
+    ? '/gallery/zone/' + entry.targetId
+    : '/gallery/item/' + entry.targetId
 }
 const achievementStatuses = ['待授权', '待审核', '审核通过', '审核驳回', '已撤回或拒绝', '已生成展项']
 const statuses = ['未提交', '草稿', '已提交', '已批阅', '已退回', '逾期未交', '任务取消']
@@ -68,14 +81,9 @@ function taskSubmissionAction(task) {
   if (state === 5 || deadline < clock.value) return '查看补交'
   return state === 1 ? '继续提交' : '去提交'
 }
-const navigation = [
-  { to: '/course', title: '我的课程', icon: 'records', routes: ['courses', 'course', 'task'] },
-  { to: '/score', title: '我的成绩', icon: 'chart-trending-o', routes: ['score'] },
-  { to: '/achievements', title: '我的成果', icon: 'award-o', routes: ['achievements'] },
-  { to: '/profile', title: '我的', icon: 'user-o', routes: ['profile', 'notifications', 'feedback', 'version', 'avatar'] }
-]
+const navigation = sharedNavigation
 const profileLinks = [
-  ...navigation.filter(entry => entry.to !== '/profile'),
+  ...navigation.filter(entry => entry.to !== '/profile' && entry.to !== '/home'),
   { to: '/notifications', title: '通知', icon: 'bell' },
   { to: '/profile/feedback', title: '意见反馈', icon: 'comment-o' },
   { to: '/profile/version', title: '版本更新', icon: 'upgrade' }
@@ -171,8 +179,12 @@ watch(() => route.fullPath, async (_, __, onCleanup) => {
     }
     const endpoint = endpoints[route.name]
     if (!endpoint) return
-    const result = await request(endpoint)
+    const [result, classes] = await Promise.all([
+      request(endpoint),
+      ['courses', 'profile'].includes(route.name) ? request('/edu/learning/classes/current') : Promise.resolve(null)
+    ])
     if (!active) return
+    if (classes) currentClasses.value = classes.data
     if (route.name === 'score') {
       const result = await request('/edu/score/appeals/my')
       if (!active) return
@@ -193,10 +205,83 @@ watch(() => route.fullPath, async (_, __, onCleanup) => {
   }
 }, { immediate: true })
 
+// 正文与附件变更触发草稿自动保存（ST-02-02）
+watch(content, () => {
+  if (suppressAutoSave) return
+  draftDirty.value = true
+  scheduleAutoSave()
+})
+watch(() => files.value.map(file => file.fileId).join(','), () => {
+  if (suppressAutoSave) return
+  draftDirty.value = true
+  scheduleAutoSave()
+})
+
+function scheduleAutoSave() {
+  clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(() => autoSaveDraft(), 3000)
+}
+
+async function autoSaveDraft(force = false) {
+  if (route.name !== 'task' || !data.value || !draftDirty.value) return
+  if (!force && (!draftEditable() || busy.value)) return
+  if (autoSaving) { pendingAutoSave = true; return }
+  const taskId = data.value.task.taskId
+  const snapshot = content.value
+  const filesSnapshot = files.value.map(file => ({ ...file }))
+  autoSaving = true
+  autoSaveState.value = 'saving'
+  clearTimeout(autoSaveTimer)
+  try {
+    await request('/edu/submission/draft', {
+      method: 'POST', body: { taskId, content: snapshot, files: filesSnapshot }
+    })
+    lastAutoSaved.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    autoSaveState.value = 'saved'
+    draftDirty.value = false
+  } catch {
+    autoSaveState.value = 'error'
+  } finally {
+    autoSaving = false
+    if (pendingAutoSave) {
+      pendingAutoSave = false
+      scheduleAutoSave()
+    }
+  }
+}
+
+function flushAutoSave() {
+  clearTimeout(autoSaveTimer)
+  if (draftDirty.value) return autoSaveDraft(true)
+  return Promise.resolve()
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') flushAutoSave()
+}
+function onOnline() {
+  if (draftDirty.value || autoSaveState.value === 'error') scheduleAutoSave()
+}
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('online', onOnline)
+  window.addEventListener('beforeunload', onVisibilityChange)
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('online', onOnline)
+  window.removeEventListener('beforeunload', onVisibilityChange)
+  clearTimeout(autoSaveTimer)
+})
+
 function syncSubmission(submission) {
+  suppressAutoSave = true
+  clearTimeout(autoSaveTimer)
   data.value.submission = submission
   content.value = submission.content || ''
   files.value = submission.files || []
+  draftDirty.value = false
+  nextTick(() => { suppressAutoSave = false })
 }
 
 async function run(action) {
@@ -344,6 +429,7 @@ function save(action) {
   if (action === 'submit' && !window.confirm('确认正式提交作业及当前附件？')) return
   return run(async () => {
     const taskId = data.value.task.taskId
+    if (action === 'submit') await flushAutoSave()
     await request('/edu/submission/' + action, { method: 'POST', body: { taskId, content: content.value, files: files.value } })
     if (route.params.taskId === String(taskId)) {
       syncSubmission((await request('/edu/submission/my/' + taskId)).data)
@@ -385,7 +471,7 @@ function upload(event) {
   return run(async () => {
     const form = new FormData()
     form.append('file', selected)
-    const result = await request('/common/upload', { method: 'POST', body: form })
+    const result = await request('/common/upload/secure', { method: 'POST', body: form })
     if (route.params.taskId !== String(taskId)) return
     files.value.push({
       fileId: result.fileName, fileName: selected.name, fileSize: selected.size,
@@ -414,22 +500,40 @@ function markRead(notification) {
   })
 }
 
-function openResource(resource, download = false) {
+function openResource(resource, download = false, endpoint = null) {
   const courseId = route.params.courseId
+  const url = endpoint || ('/edu/learning/courses/' + courseId + '/resources/' + resource.resourceId)
   return run(async () => {
-    const blob = await request('/edu/learning/courses/' + courseId + '/resources/' + resource.resourceId + '?download=' + download, { binary: true })
+    const blob = await request(url + '?download=' + download, { binary: true })
     if (route.params.courseId !== courseId) return
-    const url = URL.createObjectURL(blob)
+    const objectUrl = URL.createObjectURL(blob)
     if (download) {
       const link = document.createElement('a')
-      link.href = url
+      link.href = objectUrl
       link.download = resource.fileName || resource.title
       link.click()
-      setTimeout(() => URL.revokeObjectURL(url), 30000)
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 30000)
     } else {
       closePreview()
-      preview.value = { url, title: resource.title, type: blob.type }
+      preview.value = { url: objectUrl, title: resource.title, type: blob.type }
     }
+  })
+}
+
+function openTaskResource(resource, download = false) {
+  return openResource(resource, download,
+    '/edu/learning/tasks/' + route.params.taskId + '/resources/' + resource.resourceId)
+}
+
+function downloadTemplate() {
+  return run(async () => {
+    const blob = await request('/edu/learning/tasks/' + route.params.taskId + '/template', { binary: true })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = '实训任务模板'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
   })
 }
 </script>
@@ -447,6 +551,7 @@ function openResource(resource, download = false) {
       <div>
         <h2>法律实训</h2>
         <p>查看课程任务与学习资料</p>
+        <p class="current-class">当前班级：{{ currentClassLabel }}</p>
       </div>
     </header>
     <p v-if="unreadCount" class="unread-summary">{{ unreadCount }} 条未读通知</p>
@@ -464,6 +569,7 @@ function openResource(resource, download = false) {
         <div>
           <h2 v-if="data" class="profile-name">{{ data.userName || data.nickName }}</h2>
           <p v-if="data?.nickName && data.userName && data.nickName !== data.userName">{{ data.nickName }}</p>
+          <p class="current-class">当前班级：{{ currentClassLabel }}</p>
         </div>
       </header>
       <div class="card profile-card">
@@ -575,7 +681,7 @@ function openResource(resource, download = false) {
         <h3>延伸学习</h3>
         <ul>
           <li v-for="entry in data.exhibits" :key="entry.targetType + ':' + entry.targetId">
-            <a :href="galleryUrl(entry)" target="_blank" rel="noopener">{{ entry.title }}</a>
+            <RouterLink :to="galleryRoute(entry)">{{ entry.title }}</RouterLink>
           </li>
         </ul>
       </section>
@@ -583,6 +689,7 @@ function openResource(resource, download = false) {
       <h3>任务</h3>
       <p v-if="!data.tasks.length">暂无任务</p>
       <ul class="record-list course-task-list"><li v-for="task in data.tasks" :key="task.taskId">
+        <span class="task-icon" aria-hidden="true">📝</span>
         <div class="course-task-details">
           <RouterLink :to="'/task/' + task.taskId">{{ task.title }}</RouterLink>
           <span class="muted">截止 {{ task.deadline }} · {{ statuses[task.submitStatus] }}</span>
@@ -593,13 +700,20 @@ function openResource(resource, download = false) {
       </li></ul>
       <h3>课程资源</h3>
       <p v-if="!data.resources.length">暂无资源</p>
-      <ul><li v-for="resource in data.resources" :key="resource.resourceId">
-        {{ resource.title }}
-        <a v-if="resource.resType === 'link' && /^https?:\/\//i.test(resource.externalUrl)" :href="resource.externalUrl" target="_blank" rel="noopener noreferrer">打开资源</a>
-        <template v-else-if="resource.resType !== 'link'">
-          <button v-if="resource.previewable" :disabled="busy" @click="openResource(resource)">预览</button>
-          <button v-if="resource.allowDownload === '1'" :disabled="busy" @click="openResource(resource, true)">下载</button>
-        </template>
+      <ul v-else class="resource-list"><li v-for="resource in data.resources" :key="resource.resourceId">
+        <span class="resource-icon" aria-hidden="true">📎</span>
+        <span class="resource-info">
+          <span class="resource-title">{{ resource.title }}</span>
+          <span v-if="resource.resType === 'link'" class="resource-type">外部链接</span>
+        </span>
+        <span class="resource-actions">
+          <a v-if="resource.resType === 'link' && /^https?:\/\//i.test(resource.externalUrl)" class="resource-action"
+             :href="resource.externalUrl" target="_blank" rel="noopener noreferrer">打开</a>
+          <template v-else-if="resource.resType !== 'link'">
+            <button v-if="resource.previewable" class="resource-action" :disabled="busy" @click="openResource(resource)">预览</button>
+            <button v-if="resource.allowDownload === '1'" class="resource-action" :disabled="busy" @click="openResource(resource, true)">下载</button>
+          </template>
+        </span>
       </li></ul>
       <section v-if="preview">
         <h3>{{ preview.title }}</h3>
@@ -613,6 +727,7 @@ function openResource(resource, download = false) {
     <section v-else-if="data && route.name === 'task'" class="card fields">
       <h2>{{ data.task.title }}</h2>
       <p class="multiline">{{ data.task.requirement }}</p>
+      <p v-if="data.templateUrl"><button type="button" :disabled="busy" @click="downloadTemplate">下载附件模板</button></p>
       <LinkedCases :endpoint="'/edu/learning/tasks/' + route.params.taskId + '/cases'" />
       <p>截止时间 {{ data.task.deadline }} · {{ statuses[data.submission.status] }}</p>
       <p v-if="countdown" class="muted">{{ countdown }}</p>
@@ -622,6 +737,17 @@ function openResource(resource, download = false) {
         <ul v-if="data.task.scoreItems?.length">
           <li v-for="item in data.task.scoreItems" :key="item.itemId">{{ item.itemName }} · 满分 {{ item.maxScore }}</li>
         </ul>
+      </section>
+      <section v-if="data.resources?.length" aria-label="任务资料">
+        <h3>任务资料</h3>
+        <ul><li v-for="resource in data.resources" :key="resource.resourceId">
+          {{ resource.title }}
+          <a v-if="resource.resType === 'link' && /^https?:\/\//i.test(resource.externalUrl)" :href="resource.externalUrl" target="_blank" rel="noopener noreferrer">打开资料</a>
+          <template v-else-if="resource.resType !== 'link'">
+            <button v-if="resource.previewable" :disabled="busy" @click="openTaskResource(resource)">预览</button>
+            <button v-if="resource.allowDownload === '1'" :disabled="busy" @click="openTaskResource(resource, true)">下载</button>
+          </template>
+        </li></ul>
       </section>
       <section v-if="data.exhibits?.length" aria-label="关联展厅内容">
         <h3>关联展厅内容</h3>
@@ -682,6 +808,9 @@ function openResource(resource, download = false) {
         <span v-if="editors.some(editor => editor.userId !== teamInfo?.selfId)" role="status">
           正在编辑：{{ editors.filter(editor => editor.userId !== teamInfo?.selfId).map(editor => editor.name).join('、') }}
         </span>
+        <span v-if="autoSaveState" class="autosave-state" role="status">
+          {{ autoSaveState === 'saving' ? '草稿保存中…' : autoSaveState === 'saved' ? ('草稿已自动保存 ' + lastAutoSaved) : '草稿保存失败，联网后将自动重试' }}
+        </span>
         <textarea v-model="content" rows="5" :readonly="!draftEditable()"
                   @focus="draftFocused = draftEditable()" @blur="draftFocused = false"></textarea>
       </label>
@@ -735,6 +864,7 @@ function openResource(resource, download = false) {
 </template>
 
 <style scoped>
+.autosave-state { display: block; font-size: .78rem; color: #1989fa; }
 .learning {
   --student-nav-height: 0rem;
   width: 100%;
@@ -761,6 +891,7 @@ nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
   border-bottom: 1px solid #a15e45;
 }
 .app-bar h1 { grid-column: 2; margin: 0; text-align: center; font-size: 1.13rem; letter-spacing: .04em; }
+.current-class { overflow-wrap: anywhere; }
 .app-bar-back {
   grid-column: 1; grid-row: 1; display: grid; place-items: center;
   min-height: 3rem; color: inherit; text-decoration: none; font-size: 1.25rem;
@@ -771,7 +902,7 @@ nav { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
   inset: auto 0 0;
   width: min(100%, var(--lt-app-width));
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: .25rem;
   margin-inline: auto;
   padding: .4rem .35rem calc(.4rem + var(--lt-safe-bottom));
@@ -870,13 +1001,35 @@ h2 { font-size: 1.2rem; }
 .record-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .85rem; border-radius: var(--lt-radius); background: var(--lt-field); }
 .record-list form { flex-basis: 100%; }
 .record-list .muted { flex-basis: 100%; }
-.course-task-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; }
-.course-task-details { display: grid; min-width: 0; gap: .35rem; }
+.course-task-list li { display: flex; align-items: center; gap: .7rem; }
+.task-icon { display: grid; place-items: center; flex: none; width: 2.1rem; height: 2.1rem; border-radius: .55rem; background: var(--lt-tint); font-size: 1.05rem; }
+.course-task-details { display: grid; flex: 1; min-width: 0; gap: .35rem; }
+.course-task-details .muted { flex-basis: auto; font-size: .8rem; }
 .workspace-main .task-submit-entry {
   display: grid; place-items: center; min-height: 44px; padding: .4rem .65rem;
   color: var(--lt-on-dark); background: var(--lt-primary); border-radius: var(--lt-radius);
   text-decoration: none; font-size: .84rem; font-weight: 650; white-space: nowrap;
 }
+.resource-list { list-style: none; padding: 0; margin: .7rem 0 0; display: grid; gap: .6rem; }
+.resource-list li {
+  display: flex; align-items: center; gap: .7rem; padding: .7rem .85rem;
+  border: 1px solid var(--lt-border); border-radius: var(--lt-radius); background: var(--lt-field);
+}
+.resource-icon {
+  display: grid; place-items: center; flex: none; width: 2.1rem; height: 2.1rem;
+  border-radius: .55rem; background: var(--lt-tint); font-size: 1.05rem;
+}
+.resource-info { display: grid; gap: .2rem; flex: 1; min-width: 0; }
+.resource-title { font-size: .9rem; line-height: 1.4; color: var(--lt-text); overflow-wrap: anywhere; }
+.resource-type { font-size: .74rem; color: var(--lt-sub); }
+.resource-actions { display: flex; align-items: center; gap: .4rem; flex: none; }
+.resource-action {
+  display: inline-grid; place-items: center; min-height: 2rem; padding: .3rem .7rem;
+  border: 1px solid var(--lt-tint); border-radius: .5rem;
+  background: var(--lt-tint); color: var(--lt-primary);
+  font-size: .8rem; font-weight: 650; text-decoration: none; white-space: nowrap; cursor: pointer;
+}
+.resource-action:hover:enabled { background: var(--lt-primary); color: var(--lt-on-dark); border-color: var(--lt-primary); }
 .score-value { margin-inline-start: auto; }
 .score-value { font-size: 1.35rem; color: var(--lt-primary); }
 .workspace-main a { color: var(--lt-primary); text-underline-offset: .2em; }

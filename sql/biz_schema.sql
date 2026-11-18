@@ -290,7 +290,7 @@ CREATE TABLE edu_resource (
   title        varchar(200) NOT NULL COMMENT '资源标题',
   category_id  bigint                DEFAULT NULL,
   res_type     varchar(16)  NOT NULL COMMENT 'doc/video/audio/image/link',
-  file_id      varchar(64)           DEFAULT NULL COMMENT '文件存储标识（ops 文件服务）',
+  file_id      varchar(255)          DEFAULT NULL COMMENT '文件存储标识（受控目录 /profile/upload/secure/）',
   file_name    varchar(255)          DEFAULT NULL,
   file_size    bigint                DEFAULT NULL,
   file_ext     varchar(16)           DEFAULT NULL,
@@ -298,6 +298,7 @@ CREATE TABLE edu_resource (
   duration     int                   DEFAULT NULL COMMENT '音视频时长（秒）',
   cover        varchar(500)           DEFAULT NULL,
   visible_scope tinyint     NOT NULL DEFAULT 1 COMMENT '可见范围 0仅本人 1本课程 2本班 3全校',
+  class_id     bigint                DEFAULT NULL COMMENT 'visible_scope=2(本班)时的归属班级（F03）',
   allow_download char(1)    NOT NULL DEFAULT '1' COMMENT '是否允许下载（TC-02-04）',
   ref_count    int          NOT NULL DEFAULT 0 COMMENT '被任务/展项引用次数，>0 不可删除',
   status       tinyint      NOT NULL DEFAULT 0 COMMENT '0已上架 1已下架',
@@ -307,7 +308,8 @@ CREATE TABLE edu_resource (
   update_time  datetime              DEFAULT NULL,
   PRIMARY KEY (resource_id),
   KEY idx_res_owner (owner_id, status),
-  KEY idx_res_cate (category_id)
+  KEY idx_res_cate (category_id),
+  KEY idx_res_class (class_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='教学资源（TC-02-01 / TC-02-03 / TC-02-04）';
 
 DROP TABLE IF EXISTS edu_course_resource;
@@ -461,7 +463,7 @@ CREATE TABLE edu_submission_file (
   id            bigint       NOT NULL AUTO_INCREMENT,
   submission_id bigint       NOT NULL,
   version       int          NOT NULL DEFAULT 1,
-  file_id       varchar(64)  NOT NULL COMMENT '文件服务标识',
+  file_id       varchar(255) NOT NULL COMMENT '文件服务标识（受控目录）',
   file_name     varchar(255) NOT NULL,
   file_size     bigint                DEFAULT NULL,
   file_ext      varchar(16)           DEFAULT NULL,
@@ -804,6 +806,19 @@ CREATE TABLE exh_share_link (
   UNIQUE KEY uk_short_code (short_code),
   KEY idx_sl_target (target_type, target_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分享链接与二维码（EM-05-01 / EF-05-01）';
+
+DROP TABLE IF EXISTS exh_share_event;
+CREATE TABLE exh_share_event (
+  id          bigint      NOT NULL AUTO_INCREMENT,
+  target_type varchar(16) NOT NULL COMMENT 'zone/item',
+  target_id   bigint      NOT NULL,
+  channel     varchar(16) NOT NULL COMMENT 'qrcode/link/terminal/portal/direct',
+  share_type  varchar(16) NOT NULL COMMENT 'link/qr/card/system',
+  anon_id     varchar(64)          DEFAULT NULL COMMENT '匿名会话标识，不采身份',
+  share_time  datetime    NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_se_target (target_type, target_id, share_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分享事件（EL-04-02，与访问事件分开统计）';
 
 DROP TABLE IF EXISTS exh_access_event;
 CREATE TABLE exh_access_event (

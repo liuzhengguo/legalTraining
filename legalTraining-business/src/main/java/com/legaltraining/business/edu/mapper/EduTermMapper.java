@@ -74,6 +74,11 @@ public interface EduTermMapper
     public int countPendingRecommendations(@Param("termId") Long termId);
 
     /**
+     * F07 归档前置检查：有已发布任务成绩但尚未生成课程总评的学生-课程数（P6 必须先完成）。
+     */
+    public int countMissingCourseTotals(@Param("termId") Long termId);
+
+    /**
      * 归档：本学期的任务统一转"已归档"（状态机 6.1）
      */
     public int archiveTasks(@Param("termId") Long termId);

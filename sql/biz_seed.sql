@@ -354,9 +354,14 @@ INSERT INTO sys_config (config_name, config_key, config_value, config_type, crea
 ('跨班分组开关',         'biz.group.crossClass',      '0',     'Y', 'admin', sysdate(), 'MG-01-03：0仅本班 1允许跨班'),
 ('展厅短链前缀',         'biz.exhibit.shareBase',    'https://exh.legaltraining.cn/s/', 'N', 'admin', sysdate(), 'EM-05-01 分享短链域名前缀'),
 ('展厅内容版本号',       'biz.exhibit.contentVersion','',      'N', 'admin', sysdate(), 'OP-02-03 留空则按最后更新时间推导'),
-('外部案例库地址',       'biz.openapi.caseUrl',       '',      'N', 'admin', sysdate(), 'OP-02-08 留空即降级为空结果'),
-('AI 咨询地址',          'biz.ai.consultUrl',         '',      'N', 'admin', sysdate(), 'OP-02-09 留空即降级提示未配置') AS new_cfg
+('AI 咨询地址',          'biz.ai.consultUrl',         '',      'N', 'admin', sysdate(), 'OP-02-09 留空即降级提示未配置'),
+('门户帮助地址',         'biz.portal.helpUrl',        '',      'N', 'admin', sysdate(), 'OP-01-05 留空则展示内置帮助'),
+('门户 AI 入口地址',     'biz.openapi.aiUrl',         '',      'N', 'admin', sysdate(), 'OP-01-04 留空则隐藏入口') AS new_cfg
 ON DUPLICATE KEY UPDATE config_value = new_cfg.config_value, remark = new_cfg.remark;
+
+INSERT INTO sys_config (config_name, config_key, config_value, config_type, create_by, create_time, remark)
+SELECT '外部案例库地址', 'biz.openapi.caseUrl', '', 'N', 'admin', sysdate(), 'OP-02-08 留空即降级为空结果'
+WHERE NOT EXISTS (SELECT 1 FROM sys_config WHERE config_key = 'biz.openapi.caseUrl');
 
 -- ============================================================================
 -- 7. 资源分类（TC-02-02）：两级公共分类，按教学主题组织；可重复执行

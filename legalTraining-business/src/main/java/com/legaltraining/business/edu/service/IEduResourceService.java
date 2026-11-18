@@ -2,6 +2,7 @@ package com.legaltraining.business.edu.service;
 
 import java.util.List;
 import java.util.Map;
+import com.legaltraining.business.edu.domain.EduCourseResourceRef;
 import com.legaltraining.business.edu.domain.EduResource;
 import com.legaltraining.business.edu.domain.EduResourceCategory;
 
@@ -35,6 +36,12 @@ public interface IEduResourceService
     int linkCourse(Long courseId, Long resourceId);
 
     int unlinkCourse(Long courseId, Long resourceId);
+
+    /** 课程维度批量维护资源投放与顺序（TC-02-01） */
+    int saveCourseResources(Long courseId, List<EduCourseResourceRef> refs);
+
+    /** 资源已投放的课程 ID 列表（资源页反向维护用） */
+    List<Long> selectCourseIdsByResource(Long resourceId);
 
     List<EduResource> selectResourcesByCourse(Long courseId);
 

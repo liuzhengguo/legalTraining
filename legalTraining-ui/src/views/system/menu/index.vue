@@ -93,7 +93,7 @@
           <dict-tag :options="dict.type.sys_normal_disable" :value="scope.row.status" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="190" fixed="right" align="right" class-name="small-padding fixed-width">
+      <el-table-column label="操作" width="190" fixed="right" align="center" class-name="small-padding fixed-width nowrap-actions">
         <template slot-scope="scope">
           <el-button
             size="mini"

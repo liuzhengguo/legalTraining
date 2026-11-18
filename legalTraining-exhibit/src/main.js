@@ -15,6 +15,13 @@ app.use(createPinia())
 app.use(router)
 app.mount('#app')
 
+// 终端应用壳：生产环境注册 Service Worker，断网重启仍可从本地拉起页面（TM-03-01）。
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {})
+  })
+}
+
 // kiosk 模式禁用浏览器手势返回与长按菜单（TM-02-01）
 if (location.pathname.startsWith('/kiosk')) {
   document.addEventListener('contextmenu', (e) => e.preventDefault())

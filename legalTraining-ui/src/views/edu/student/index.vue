@@ -15,10 +15,12 @@
       <el-button v-hasPermi="['edu:student:transfer']" type="text" @click="transfer(row, reload)">转班</el-button>
     </template>
   </BusinessRecords>
-  <el-dialog title="学生账号批量导入" :visible.sync="importOpen" width="min(740px, 95vw)">
+    <el-dialog title="学生账号批量导入" :visible.sync="importOpen" width="min(740px, 95vw)">
     <el-form label-width="100px">
-      <el-form-item label="目标学期 ID">
-        <el-input-number v-model="termId" :min="1" :precision="0" placeholder="当前学期" @change="preview = null" />
+      <el-form-item label="目标学期">
+        <el-select v-model="termId" filterable clearable placeholder="默认当前学期" style="width: 100%" @change="preview = null">
+          <el-option v-for="term in termOptions" :key="term.value" :label="term.label" :value="term.value" />
+        </el-select>
       </el-form-item>
       <el-form-item label="导入文件">
         <input type="file" accept=".xlsx,.xls" @change="file = $event.target.files[0]; preview = null">
@@ -36,6 +38,20 @@
       <el-button type="primary" :loading="importBusy" :disabled="preview.overLimit" @click="confirmImport">确认导入有效记录</el-button>
     </template>
   </el-dialog>
+  <el-dialog title="学生转班" :visible.sync="transferOpen" append-to-body width="min(460px, 95vw)">
+    <el-form label-width="90px">
+      <el-form-item label="学生"><span>{{ transferRow && transferRow.nickName }}（{{ transferRow && transferRow.userName }}）</span></el-form-item>
+      <el-form-item label="目标班级">
+        <el-select v-model="transferClassId" filterable placeholder="搜索班级名称" style="width: 100%">
+          <el-option v-for="c in classOptions" :key="c.value" :label="c.label" :value="c.value" />
+        </el-select>
+      </el-form-item>
+    </el-form>
+    <span slot="footer">
+      <el-button @click="transferOpen = false">取消</el-button>
+      <el-button type="primary" :disabled="!transferClassId" @click="confirmTransfer">确认转班</el-button>
+    </span>
+  </el-dialog>
   </div>
 </template>
 
@@ -48,7 +64,9 @@ export default {
   name: 'EduStudent',
   components: { BusinessRecords },
   data() {
-    return { termId: undefined, file: null, importOpen: false, importBusy: false, preview: null, failures: [], config: {
+    return { termId: undefined, file: null, importOpen: false, importBusy: false, preview: null, failures: [],
+      termOptions: [], classOptions: [], transferOpen: false, transferRow: null, transferClassId: undefined,
+      config: {
       title: '学生账号', base: '/edu/student', permission: 'edu:student', id: 'userId',
       paged: true, remove: false, rowActions: true, defaults: {},
       createOnly: true,
@@ -57,14 +75,22 @@ export default {
         { key: 'userName', label: '登录账号', required: true },
         { key: 'nickName', label: '姓名', required: true },
         { key: 'studentNo', label: '学号', required: true },
-        { key: 'classId', label: '班级 ID', required: true, number: true },
+        { key: 'classId', label: '班级', required: true, options: () => this.classOptions },
         { key: 'phonenumber', label: '手机号' }
       ],
       columns: [{"key":"userId","label":"ID"},{"key":"userName","label":"登录账号"},{"key":"nickName","label":"姓名"},{"key":"studentNo","label":"学号"},{"key":"className","label":"班级"},{"key":"majorName","label":"专业"},
         { key: 'status', label: '状态' }]
     } }
   },
+  created() { this.loadOptions() },
   methods: {
+    async loadOptions() {
+      try {
+        const { data } = await request({ url: '/edu/student/import-options' })
+        this.termOptions = data.terms || []
+        this.classOptions = data.classes || []
+      } catch (e) { this.termOptions = []; this.classOptions = [] }
+    },
     async downloadTemplate() {
       const blob = await request({ url: '/edu/import/template', responseType: 'blob' })
       if (blob.type.includes('json')) {
@@ -97,11 +123,19 @@ export default {
         await this.$refs.records.load()
       } finally { this.importBusy = false }
     },
-    async transfer(row, reload) {
-      const target = await this.$prompt('请输入目标班级 ID', '学生转班', { inputPattern: /^[1-9]\d*$/ }).catch(() => null)
-      if (!target) return
-      await request({ url: '/edu/transfer/class', method: 'post', params: { userId: row.userId, toClassId: target.value } })
-      await reload()
+    transfer(row, reload) {
+      this.transferRow = row
+      this.transferReload = reload
+      this.transferClassId = undefined
+      this.transferOpen = true
+    },
+    async confirmTransfer() {
+      if (!this.transferRow || !this.transferClassId) return
+      await request({ url: '/edu/transfer/class', method: 'post',
+        params: { userId: this.transferRow.userId, toClassId: this.transferClassId } })
+      this.transferOpen = false
+      this.$modal.msgSuccess('转班成功')
+      if (this.transferReload) await this.transferReload()
     },
     async changeStatus(row, reload) {
       const status = row.status === '0' ? '1' : '0'

@@ -20,7 +20,7 @@
       <el-table-column label="状态">
         <template slot-scope="{ row }">{{ statuses[row.status] }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right" align="right">
+      <el-table-column label="操作" width="210" fixed="right" align="center" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <el-button v-if="row.status === 1" v-hasPermi="['exh:audit:list']" type="text" @click="prepare(row)">审核</el-button>
           <el-button v-else v-hasPermi="['exh:audit:list']" type="text" @click="prepare(row)">审核记录</el-button>

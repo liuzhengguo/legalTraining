@@ -6,12 +6,17 @@
       <el-table-column prop="userName" label="登录账号" min-width="130" />
       <el-table-column prop="nickName" label="姓名" min-width="120" />
       <el-table-column prop="deptName" label="院系" min-width="180" />
+      <el-table-column label="角色" min-width="160" show-overflow-tooltip>
+        <template slot-scope="{ row }">
+          {{ row.roles && row.roles.length ? row.roles.map(role => role.roleName).join('、') : '未分配角色' }}
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="110">
         <template slot-scope="{ row }">
           <el-tag size="small" :type="row.status === '0' ? 'success' : 'danger'">{{ row.status === '0' ? '已启用' : '已停用' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" align="right" fixed="right" width="110">
+      <el-table-column label="操作" align="center" fixed="right" width="110" class-name="nowrap-actions">
         <template slot-scope="{ row }"><el-button type="text" @click="loadRoles(row)">查看授权</el-button></template>
       </el-table-column>
     </el-table>
@@ -68,14 +73,17 @@ export default {
   watch: {
     search() { this.page = 1 }
   },
-  async created() {
-    this.loading = true
-    try {
-      const { data } = await request({ url: '/edu/grant/accounts' })
-      this.accounts = data
-    } finally { this.loading = false }
+  created() {
+    return this.loadAccounts()
   },
   methods: {
+    async loadAccounts() {
+      this.loading = true
+      try {
+        const { data } = await request({ url: '/edu/grant/accounts' })
+        this.accounts = data
+      } finally { this.loading = false }
+    },
     async loadRoles(account) {
       this.selected = account
       this.roles = []
@@ -108,6 +116,7 @@ export default {
         this.dialog = false
         if (data.warnings?.length) this.$alert(data.warnings.join('\n'), '角色授权已保存')
         else this.$modal.msgSuccess('角色授权已保存')
+        await this.loadAccounts()
       } finally { this.saving = false }
     }
   }

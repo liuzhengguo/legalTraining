@@ -7,7 +7,7 @@ const canvas = ref(null)
 const ready = ref(false)
 const yaw = ref(0)
 const pitch = ref(0)
-const fov = ref(75 * Math.PI / 180)
+const fov = ref(105 * Math.PI / 180)
 const aspect = ref(1)
 let gl, program, texture, buffer, observer, image, pointer, loadTimer
 let active = true

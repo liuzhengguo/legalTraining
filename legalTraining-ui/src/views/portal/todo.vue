@@ -8,10 +8,10 @@
       <el-table-column label="数量">
         <template slot-scope="{ row }">{{ todo.counts[row.key] }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="110" fixed="right" align="right">
+      <el-table-column label="操作" width="130" fixed="right" align="center" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <router-link v-if="row.key === 'review' && can('edu:review:list') || row.key === 'audit' && can('exh:audit:list')" :to="row.path">处理</router-link>
-          <a v-else-if="studentUrl(row.key)" :href="studentUrl(row.key)">打开学生端</a>
+          <a v-else-if="studentUrl(row.key)" :href="studentUrl(row.key)" @click.prevent="openStudent(row.key)">打开学生端</a>
         </template>
       </el-table-column>
     </el-table>
@@ -35,6 +35,18 @@ export default {
       const path = { submit: '/course', authorize: '/achievements' }[key]
       const base = process.env.VUE_APP_STUDENT_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:5173' : '')
       return base && path ? base.replace(/\/$/, '') + path : ''
+    },
+    async openStudent(key) {
+      const target = this.studentUrl(key)
+      if (!target) return
+      try {
+        const result = await request({ url: '/portal/sso/student-ticket' })
+        const ticket = result.ticket || result.data?.ticket
+        if (!ticket) throw new Error('ticket missing')
+        window.location.href = target + (target.includes('?') ? '&' : '?') + 'sso=' + encodeURIComponent(ticket)
+      } catch {
+        this.$message.error('无法进入学生端，请确认使用学生账号登录')
+      }
     }
   }
 }

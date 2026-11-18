@@ -48,6 +48,17 @@ public class StudentLearningController extends BaseController
             + "where cc.course_id = c.course_id and cs.user_id = ? "
             + "and (cs.is_current = '1' or c.status = 2)))";
 
+    /**
+     * F03：本班资源（visible_scope=2）按归属班级隔离。要求当前用户在资源所属班级中，
+     * 且该班级是资源关联课程(c)下的班级，口径与 COURSE_ACCESS 一致（term_id + is_current）。
+     * 历史数据 class_id 为空的本班资源对所有学生不可见（fail-closed）。? 为 getUserId()。
+     */
+    private static final String CLASS_MATCH = " and (r.visible_scope <> 2 or exists ("
+            + "select 1 from edu_course_class cc2 join edu_class_student cs2 "
+            + "on cs2.class_id = cc2.class_id and cs2.term_id = c.term_id "
+            + "where cc2.course_id = c.course_id and cs2.user_id = ? "
+            + "and cs2.class_id = r.class_id and (cs2.is_current = '1' or c.status = 2)))";
+
     private static final String COURSES = "select c.course_id as courseId, c.course_name as courseName, "
             + "c.intro, c.status from edu_course c where (" + COURSE_ACCESS
             + "or exists (select 1 from edu_task t join edu_task_participant p on p.task_id = t.task_id "
@@ -73,6 +84,15 @@ public class StudentLearningController extends BaseController
         this.tasks = tasks;
         this.submissions = submissions;
         this.caseLibrary = caseLibrary;
+    }
+
+    @GetMapping("/classes/current")
+    public AjaxResult currentClasses()
+    {
+        return success(jdbc.queryForList("select distinct c.class_id as classId, c.class_name as className "
+                + "from edu_class_student cs join edu_class c on c.class_id = cs.class_id "
+                + "where cs.user_id = ? and cs.is_current = '1' and c.del_flag = '0' order by c.class_id",
+                getUserId()));
     }
 
     @GetMapping("/{type:courses|tasks}/{id}/cases")
@@ -150,8 +170,8 @@ public class StudentLearningController extends BaseController
                 + "from edu_course_resource cr join edu_resource r on r.resource_id = cr.resource_id "
                 + "join edu_course c on c.course_id = cr.course_id "
                 + "where " + COURSE_ACCESS + " and cr.course_id = ? and r.status = 0 and r.del_flag = '0' "
-                + "and r.visible_scope in (1, 2, 3) order by r.resource_id",
-                userId, courseId);
+                + "and r.visible_scope in (1, 2, 3)" + CLASS_MATCH + " order by cr.sort_no, cr.id",
+                userId, courseId, userId);
         for (Map<String, Object> resource : resources)
         {
             resource.put("previewable", previewType((String) resource.remove("fileExt")) != null);
@@ -179,7 +199,25 @@ public class StudentLearningController extends BaseController
             throw new ServiceException("任务不存在或当前账号无权访问");
         }
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("task", tasks.selectEduTaskById(taskId));
+        com.legaltraining.business.edu.domain.EduTask taskDetail = tasks.selectEduTaskById(taskId);
+        data.put("task", taskDetail);
+        data.put("templateUrl", taskDetail.getTemplateFile() == null ? null
+                : "/edu/learning/tasks/" + taskId + "/template");
+        List<Map<String, Object>> taskResources = jdbc.queryForList("""
+                select r.resource_id as resourceId, r.title, r.res_type as resType,
+                       r.file_name as fileName, r.file_ext as fileExt, r.allow_download as allowDownload,
+                       case when r.res_type = 'link' then r.external_url else null end as externalUrl
+                from edu_task_resource tr join edu_resource r on r.resource_id = tr.resource_id
+                join edu_task t on t.task_id = tr.task_id and t.del_flag = '0'
+                join edu_course c on c.course_id = t.course_id
+                where tr.task_id = ? and r.status = 0 and r.del_flag = '0'
+                  and r.visible_scope in (1, 2, 3) """ + CLASS_MATCH + " order by tr.id",
+                taskId, getUserId());
+        for (Map<String, Object> resource : taskResources)
+        {
+            resource.put("previewable", previewType((String) resource.remove("fileExt")) != null);
+        }
+        data.put("resources", taskResources);
         data.put("exhibits", jdbc.queryForList("""
                 select te.target_type as targetType, te.target_id as targetId,
                        case when te.target_type='zone' then z.zone_name
@@ -218,6 +256,53 @@ public class StudentLearningController extends BaseController
         return success(data);
     }
 
+    /** 任务资料：仅开放任务内已关联、已上架且课程可见的资源（TC-03-01） */
+    @GetMapping("/tasks/{taskId}/resources/{resourceId}")
+    public ResponseEntity<FileSystemResource> taskResource(@PathVariable Long taskId,
+            @PathVariable Long resourceId, @RequestParam(defaultValue = "false") boolean download) throws IOException
+    {
+        if (jdbc.queryForList(TASKS + " and t.task_id = ?", getUserId(), taskId).isEmpty())
+        {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select r.file_id, r.file_name, r.file_ext, r.allow_download "
+                + "from edu_task_resource tr join edu_resource r on r.resource_id = tr.resource_id "
+                + "join edu_task t on t.task_id = tr.task_id and t.del_flag = '0' "
+                + "join edu_course c on c.course_id = t.course_id "
+                + "where tr.task_id = ? and r.resource_id = ? and r.status = 0 and r.del_flag = '0' "
+                + "and r.visible_scope in (1, 2, 3)" + CLASS_MATCH, taskId, resourceId, getUserId());
+        if (rows.isEmpty())
+        {
+            return ResponseEntity.notFound().build();
+        }
+        Map<String, Object> resource = rows.get(0);
+        if (download && !"1".equals(resource.get("allow_download")))
+        {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return serveFile((String) resource.get("file_id"), (String) resource.get("file_name"),
+                (String) resource.get("file_ext"), download);
+    }
+
+    /** 任务附件模板下载（TC-03-01） */
+    @GetMapping("/tasks/{taskId}/template")
+    public ResponseEntity<FileSystemResource> taskTemplate(@PathVariable Long taskId) throws IOException
+    {
+        if (jdbc.queryForList(TASKS + " and t.task_id = ?", getUserId(), taskId).isEmpty())
+        {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        com.legaltraining.business.edu.domain.EduTask task = tasks.selectEduTaskById(taskId);
+        if (task == null || task.getTemplateFile() == null)
+        {
+            return ResponseEntity.notFound().build();
+        }
+        String fileId = task.getTemplateFile();
+        String ext = fileId.contains(".") ? fileId.substring(fileId.lastIndexOf('.') + 1) : "";
+        return serveFile(fileId, "实训任务模板" + (ext.isEmpty() ? "" : "." + ext), ext, true);
+    }
+
     @GetMapping("/courses/{courseId}/resources/{resourceId}")
     public ResponseEntity<FileSystemResource> resource(@PathVariable Long courseId, @PathVariable Long resourceId,
             @RequestParam(defaultValue = "false") boolean download) throws IOException
@@ -227,8 +312,8 @@ public class StudentLearningController extends BaseController
                 + "from edu_course_resource cr join edu_resource r on r.resource_id = cr.resource_id "
                 + "join edu_course c on c.course_id = cr.course_id "
                 + "where " + COURSE_ACCESS + " and cr.course_id = ? and r.resource_id = ? "
-                + "and r.status = 0 and r.del_flag = '0' and r.visible_scope in (1, 2, 3)",
-                getUserId(), courseId, resourceId);
+                + "and r.status = 0 and r.del_flag = '0' and r.visible_scope in (1, 2, 3)" + CLASS_MATCH,
+                getUserId(), courseId, resourceId, getUserId());
         if (rows.isEmpty())
         {
             return ResponseEntity.notFound().build();
@@ -245,7 +330,9 @@ public class StudentLearningController extends BaseController
     static ResponseEntity<FileSystemResource> serveFile(String fileId, String name, String extension, boolean download)
             throws IOException
     {
-        if (fileId == null || !fileId.matches("/profile/upload/[A-Za-z0-9_./-]+"))
+        // F01：允许公开(/profile/upload/)与受控(/profile/upload/secure/)两种前缀，
+        // 二者都从同一个 upload 根目录解析；拒绝任何含 ".." 的相对跳转。
+        if (fileId == null || !fileId.matches("/profile/upload/[A-Za-z0-9_./-]+") || fileId.contains(".."))
         {
             return ResponseEntity.notFound().build();
         }

@@ -12,10 +12,12 @@
       <el-table-column prop="studentNo" label="学号" />
       <el-table-column prop="studentName" label="学生" />
       <el-table-column prop="finalScore" label="得分" />
-      <el-table-column label="操作" width="155" fixed="right" align="right">
+      <el-table-column label="操作" width="240" fixed="right" align="center" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <el-button v-if="row.status === 1 || row.status === 2" v-hasPermi="['edu:score:adjust']"
                      type="text" @click="openCorrection(row)">更正成绩</el-button>
+          <el-button v-if="row.status === 1 || row.status === 2" v-hasPermi="['edu:score:adjust']"
+                     type="text" @click="openGroupAdjust(row)">组内加减分</el-button>
           <el-button v-if="row.submissionId && !recommendations.some(item => item.submissionId === row.submissionId)"
                      v-hasPermi="['edu:score:recommend']" type="text" @click="prepare(row)">推荐成果</el-button>
         </template>
@@ -31,7 +33,7 @@
         <el-table-column label="状态">
           <template slot-scope="{ row }">{{ ['待处理', '维持成绩', '已更正'][row.status] }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="90" fixed="right" align="right">
+        <el-table-column label="操作" width="90" fixed="right" align="center" class-name="nowrap-actions">
           <template slot-scope="{ row }">
             <el-button v-if="row.status === 0" type="text" @click="openAppeal(row)">处理</el-button>
           </template>
@@ -71,6 +73,22 @@
         </el-form-item>
       </el-form>
     </el-dialog>
+    <el-dialog :visible.sync="groupAdjustOpen" title="组内加减分" width="550px">
+      <el-form label-width="90px" @submit.native.prevent="saveGroupAdjust">
+        <el-form-item label="学生">{{ groupAdjust.studentName }}（当前得分 {{ groupAdjust.finalScore }}）</el-form-item>
+        <el-form-item label="加减分">
+          <el-input-number v-model="groupAdjust.value" :min="-(groupAdjust.totalScoreFull || 100)" :max="groupAdjust.totalScoreFull || 100" :precision="2" />
+          <span class="hint">正数为加分，负数为扣分；最终成绩 = 任务得分 + 加减分</span>
+        </el-form-item>
+        <el-form-item label="原因">
+          <el-input v-model.trim="groupAdjust.reason" type="textarea" maxlength="500" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" native-type="submit" :loading="saving"
+                     :disabled="!groupAdjust.reason || groupAdjust.value == null">保存</el-button>
+        </el-form-item>
+      </el-form>
+    </el-dialog>
     <h3>成果推荐记录</h3>
     <el-table :data="recommendations">
       <el-table-column prop="title" label="成果" />
@@ -89,12 +107,14 @@
           <span v-if="row.exhibitId">{{ exhibitStatuses[row.exhibitStatus] || '已关联展项' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="授权操作" width="170" fixed="right" align="right">
+      <el-table-column label="授权操作" width="310" fixed="right" align="center" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <template v-if="row.status === 0">
             <el-button type="text" :disabled="saving" @click="remind(row)">再次提醒</el-button>
             <el-button type="text" @click="prepareAuthorization(row)">登记线下授权</el-button>
           </template>
+          <el-button v-if="row.status === 3 || row.status === 4" v-hasPermi="['edu:score:recommend']"
+                     type="text" :disabled="saving" @click="resubmit(row)">重新送审</el-button>
           <el-button v-if="row.hasAuthFile" type="text" @click="downloadAuthorization(row)">下载授权书</el-button>
         </template>
       </el-table-column>
@@ -142,7 +162,7 @@ export default {
     return {
       tasks: [], taskId: null, scores: [], recommendations: [], zones: [], form: {}, open: false, saving: false,
       authorizationOpen: false, authorization: {}, appeals: [], appealOpen: false, appeal: {},
-      correctionOpen: false, correction: {},
+      correctionOpen: false, correction: {}, groupAdjustOpen: false, groupAdjust: {},
       statuses: ['待授权', '待审核', '审核通过', '审核驳回', '已撤回或拒绝', '已生成展项'],
       exhibitStatuses: ['草稿', '待发布', '已发布', '已下架', '发布失败']
     }
@@ -209,6 +229,32 @@ export default {
         await this.loadScores()
       } finally { this.saving = false }
     },
+    openGroupAdjust(row) {
+      this.groupAdjust = { scoreId: row.scoreId, studentName: row.studentName,
+        finalScore: row.finalScore, totalScoreFull: row.totalScoreFull, value: 0, reason: '' }
+      this.groupAdjustOpen = true
+    },
+    async saveGroupAdjust() {
+      const { scoreId, value, reason } = this.groupAdjust
+      if (this.saving || value == null || !reason) return
+      this.saving = true
+      try {
+        await request({ url: '/edu/score/' + scoreId + '/group-adjust', method: 'put', params: { adjust: value, reason } })
+        this.groupAdjustOpen = false
+        this.$modal.msgSuccess('组内加减分已保存')
+        await this.loadScores()
+      } finally { this.saving = false }
+    },
+    async resubmit(row) {
+      if (this.saving) return
+      try { await this.$modal.confirm('将驳回/撤回的成果重新送审？学生授权可能被要求重新确认。') } catch (_) { return }
+      this.saving = true
+      try {
+        await request({ url: '/edu/rec/' + row.recId + '/resubmit', method: 'post', data: { reason: '教师重新送审' } })
+        this.$modal.msgSuccess('已重新送审')
+        await this.loadRecommendations()
+      } finally { this.saving = false }
+    },
     openAppeal(row) {
       this.appeal = { ...row, correct: false, newScore: row.finalScore, reply: '' }
       this.appealOpen = true
@@ -256,3 +302,6 @@ export default {
   }
 }
 </script>
+<style scoped>
+.hint { color: #909399; font-size: 12px; margin-left: 8px; }
+</style>

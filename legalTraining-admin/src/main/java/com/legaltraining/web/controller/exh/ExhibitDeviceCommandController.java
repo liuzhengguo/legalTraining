@@ -26,7 +26,7 @@ public class ExhibitDeviceCommandController extends BaseController
 
     public ExhibitDeviceCommandController(JdbcTemplate db) { this.db = db; }
 
-    public record Request(@Pattern(regexp = "restart|capture|reboot") String action) {}
+    public record Request(@Pattern(regexp = "restart|capture|reboot|offline-check") String action) {}
     public record Report(@Pattern(regexp = "[a-f0-9-]{36}") String lease, boolean success,
             @Size(max = 240) String detail, @Size(max = 2800000) String png) {}
     public record Event(@Pattern(regexp = "crash|cache_broken") String type, @Size(max = 500) String detail) {}

@@ -16,7 +16,7 @@
       <el-table-column label="类型"><template slot-scope="{ row }">{{ row.type === 'incr' ? '增量' : '全量' }}</template></el-table-column>
       <el-table-column prop="completedUtc" label="归档时间（UTC）" />
       <el-table-column prop="baseId" label="依赖的全量备份" />
-      <el-table-column label="操作" width="150" fixed="right" align="right">
+      <el-table-column label="操作" width="150" fixed="right" align="center" class-name="nowrap-actions">
         <template slot-scope="{ row }"><el-button type="text" :disabled="!state.restoreConfigured || running || working" @click="open(row)">恢复到独立目标</el-button></template>
       </el-table-column>
     </el-table>

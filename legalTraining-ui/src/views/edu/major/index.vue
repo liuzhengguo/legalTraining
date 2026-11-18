@@ -6,6 +6,11 @@
 import BusinessRecords from '@/components/BusinessRecords'
 import request from '@/utils/request'
 
+const statuses = [
+  { label: '启用', value: '0' },
+  { label: '停用', value: '1' }
+]
+
 export default {
   name: 'EduMajor',
   components: { BusinessRecords },
@@ -35,9 +40,16 @@ export default {
           { key: 'majorName', label: '专业名称', required: true },
           { key: 'deptId', label: '院系', required: true, options, read: this.readDepartment },
           { key: 'degreeType', label: '学位类型' },
-          { key: 'status', label: '状态', required: true, options: [{"label":"启用","value":"0"},{"label":"停用","value":"1"}] }
+          { key: 'status', label: '状态', required: true, options: statuses }
         ],
-        columns: [{"key":"majorId","label":"ID"},{"key":"majorCode","label":"专业编码"},{"key":"majorName","label":"专业名称"},{"key":"degreeType","label":"学位类型"},{"key":"status","label":"状态"},{"key":"deptName","label":"院系"}]
+        columns: [
+          { key: 'majorId', label: 'ID' },
+          { key: 'majorCode', label: '专业编码' },
+          { key: 'majorName', label: '专业名称' },
+          { key: 'degreeType', label: '学位类型' },
+          { key: 'status', label: '状态', format: value => statuses.find(status => status.value === String(value))?.label || '未知' },
+          { key: 'deptName', label: '院系' }
+        ]
       }
     }
   },

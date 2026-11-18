@@ -43,9 +43,9 @@
             <el-table-column
               label="操作"
               width="60"
-              align="right"
+              align="center"
               fixed="right"
-              class-name="small-padding fixed-width"
+              class-name="small-padding fixed-width nowrap-actions"
             >
               <template slot-scope="scope">
                 <el-button
@@ -94,9 +94,9 @@
             <el-table-column
               label="操作"
               width="60"
-              align="right"
+              align="center"
               fixed="right"
-              class-name="small-padding fixed-width"
+              class-name="small-padding fixed-width nowrap-actions"
             >
               <template slot-scope="scope">
                 <el-button

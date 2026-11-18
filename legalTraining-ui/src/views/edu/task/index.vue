@@ -15,7 +15,7 @@
       <el-table-column label="完成方式"><template slot-scope="{ row }">{{ modes[row.finishMode] }}</template></el-table-column>
       <el-table-column label="状态"><template slot-scope="{ row }">{{ statuses[row.status] }}</template></el-table-column>
       <el-table-column prop="deadline" label="截止时间" />
-      <el-table-column label="操作" fixed="right" align="right" width="340">
+      <el-table-column label="操作" fixed="right" align="center" width="440" class-name="nowrap-actions">
         <template slot-scope="{ row }">
           <el-button v-hasPermi="['edu:task:edit']" type="text" @click="$refs.caseReferences.show(row.taskId)">关联案例</el-button>
           <el-button type="text" @click="preview(row)">学生视角预览</el-button>
@@ -39,6 +39,11 @@
         </el-form-item>
         <el-form-item label="标题"><el-input v-model.trim="form.title" maxlength="200" /></el-form-item>
         <el-form-item label="实训要求"><el-input v-model="form.requirement" type="textarea" :rows="5" /></el-form-item>
+        <el-form-item label="附件模板">
+          <input type="file" :disabled="uploading" @change="uploadTemplate($event)">
+          <span v-if="uploading">上传中…</span>
+          <div v-if="templateName" class="template-hint">已选择：{{ templateName }}</div>
+        </el-form-item>
         <el-form-item label="开始时间"><el-date-picker v-model="form.startTime" type="datetime" value-format="yyyy-MM-dd HH:mm:ss" /></el-form-item>
         <el-form-item label="截止时间"><el-date-picker v-model="form.deadline" type="datetime" value-format="yyyy-MM-dd HH:mm:ss" /></el-form-item>
         <el-form-item label="截止策略">
@@ -74,6 +79,17 @@
             <el-button v-if="weightTotal && weightTotal !== 100" type="text" @click="normalize">归一化至 100%</el-button>
           </el-form-item>
         </template>
+        <el-form-item label="关联资料">
+          <el-select v-model="form.resourceIds" multiple filterable placeholder="选择学生可查阅的任务资料" style="width:100%">
+            <el-option v-for="item in resourceOptions" :key="item.resourceId" :label="item.title" :value="item.resourceId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="关联展厅">
+          <el-select v-model="selectedExhibits" multiple filterable placeholder="选择展区或展项" style="width:100%">
+            <el-option v-for="entry in exhibitOptions" :key="exhibitKey(entry)" :value="exhibitKey(entry)"
+                       :label="(entry.targetType === 'zone' ? '展区 · ' : '展项 · ') + entry.title" />
+          </el-select>
+        </el-form-item>
         <el-form-item><el-button native-type="submit" type="primary" :loading="saving">保存草稿</el-button></el-form-item>
       </el-form>
     </el-dialog>
@@ -84,6 +100,8 @@
       <p class="requirement">{{ previewTask.requirement }}</p>
       <p>{{ scoring[previewTask.scoreMode] }} · 满分 {{ previewTask.totalScore }}</p>
       <ul><li v-for="item in previewTask.scoreItems" :key="item.itemId">{{ item.itemName }}（{{ item.weight }}%）</li></ul>
+      <p v-if="previewTask.templateFile">附件模板：{{ fileNameOf(previewTask.templateFile) }}</p>
+      <p>关联资料 {{ (previewTask.resourceIds || []).length }} 项 · 关联展厅 {{ (previewTask.exhibits || []).length }} 处</p>
     </el-dialog>
     <el-dialog :title="updateTitles[updateAction]" :visible.sync="updateOpen" width="560px">
       <el-form label-width="92px" @submit.native.prevent="saveUpdate">
@@ -109,7 +127,8 @@ export default {
   data() {
     return {
       courses: [], rows: [], courseId: null, pageNum: 1, pageSize: 20, total: 0, loading: false,
-      form: { scoreItems: [] }, visible: false, saving: false, previewOpen: false, previewTask: {},
+      form: { scoreItems: [], resourceIds: [] }, visible: false, saving: false, previewOpen: false, previewTask: {},
+      uploading: false, templateName: '', resourceOptions: [], exhibitOptions: [], selectedExhibits: [],
       updateOpen: false, updateAction: '', updateId: null, updateForm: {},
       modes: ['个人', '教师指定分组', '自由组队'],
       statuses: ['草稿', '进行中', '已截止', '已撤回', '已归档'],
@@ -144,11 +163,37 @@ export default {
       } finally { this.loading = false }
     },
     async open(row) {
-      const defaults = { courseId: this.courseId, title: '', requirement: '', startTime: '', deadline: '',
-        deadlinePolicy: 0, graceDays: 3, finishMode: 0, groupMin: 2, groupMax: 4, scoreMode: 0, totalScore: 100 }
-      const details = row ? (await request({ url: '/edu/task/' + row.taskId })).data : {}
-      this.form = { ...defaults, ...details, scoreItems: details.scoreItems || [] }
+      const defaults = { courseId: this.courseId, title: '', requirement: '', templateFile: '', startTime: '', deadline: '',
+        deadlinePolicy: 0, graceDays: 3, finishMode: 0, groupMin: 2, groupMax: 4, scoreMode: 0, totalScore: 100, resourceIds: [] }
+      const [details, resources, exhibits] = await Promise.all([
+        row ? request({ url: '/edu/task/' + row.taskId }) : Promise.resolve({ data: {} }),
+        request({ url: '/edu/resource/list', params: { status: 0, pageNum: 1, pageSize: 1000 } }),
+        request({ url: '/edu/course/exhibit-options' })
+      ])
+      const task = details.data
+      this.resourceOptions = resources.rows || []
+      this.exhibitOptions = exhibits.data || []
+      this.form = { ...defaults, ...task, scoreItems: task.scoreItems || [], resourceIds: task.resourceIds || [] }
+      this.selectedExhibits = (task.exhibits || []).map(item => item.targetType + ':' + item.targetId)
+      this.templateName = task.templateFile ? this.fileNameOf(task.templateFile) : ''
       this.visible = true
+    },
+    fileNameOf(fileId) {
+      return fileId ? fileId.substring(fileId.lastIndexOf('/') + 1) : ''
+    },
+    exhibitKey(entry) { return entry.targetType + ':' + entry.targetId },
+    async uploadTemplate(event) {
+      const file = event.target.files[0]
+      if (!file || this.uploading) return
+      const data = new FormData()
+      data.append('file', file)
+      this.uploading = true
+      try {
+        const response = await request({ url: '/common/upload/secure', method: 'post',
+          headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }, data })
+        this.$set(this.form, 'templateFile', response.fileName)
+        this.templateName = file.name
+      } finally { this.uploading = false }
     },
     normalize() {
       let hundredths = 10000
@@ -171,7 +216,10 @@ export default {
       }
       const data = { ...this.form, scoreItems: scoreMode === 2
         ? scoreItems.map((row, index) => ({ ...row, sortNo: index, maxScore: Math.round(row.weight * totalScore) / 100 }))
-        : [] }
+        : [], exhibits: this.selectedExhibits.map((key, sortNo) => {
+          const [targetType, targetId] = key.split(':')
+          return { targetType, targetId, sortNo }
+        }) }
       if (scoreMode === 2 && this.weightTotal === 100) {
         const subtotal = data.scoreItems.slice(0, -1).reduce((sum, row) => sum + row.maxScore, 0)
         data.scoreItems[data.scoreItems.length - 1].maxScore = Math.round((totalScore - subtotal) * 100) / 100
@@ -219,4 +267,5 @@ export default {
 <style scoped>
 .score-name { width: 14rem; margin-right: .75rem; }
 .requirement { white-space: pre-wrap; overflow-wrap: anywhere; }
+.template-hint { color: #606266; font-size: 12px; margin-top: 4px; }
 </style>

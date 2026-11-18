@@ -80,7 +80,7 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="right" width="320" fixed="right">
+          <el-table-column label="操作" align="center" width="390" fixed="right" class-name="nowrap-actions">
             <template slot-scope="{row}">
               <el-button v-hasPermi="['ops:app:edit']" type="text" @click="openEditor(row)">配置</el-button>
               <el-button v-hasPermi="['ops:app:edit']" type="text" @click="openGrants(row)">接口和 IP</el-button>

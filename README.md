@@ -111,9 +111,15 @@ legal-training:
 
 ## 终端运维
 
-已有终端部署执行 `sql/v3_device_command.sql` 后，管理员可在终端设备页请求截图、重启展厅浏览器或重启终端系统。桌面终端需运行 `bin/v3-kiosk-agent.mjs`，并安装 Node.js 和 Playwright CLI 所用的 Chromium。配置文件提供 `url`（展厅的 `/kiosk`）、`commandBase`（后端 `/gallery/v1/device`）、`profile`（专用浏览器用户目录），可选 `browserBinary` 指定本机浏览器。运行器从已激活的浏览器读取终端凭证，也可通过受保护的 `credentialsFile` 预配。
+已有终端部署执行 `sql/v3_device_command.sql` 后，管理员可在终端设备页请求截图、重启展厅浏览器、执行离线冷启动自检或重启终端系统。桌面终端需运行 `bin/v3-kiosk-agent.mjs`，并安装 Node.js 和 Playwright CLI 所用的 Chromium。配置文件提供 `url`（展厅的 `/kiosk`）、`commandBase`（后端 `/gallery/v1/device`）、`profile`（专用浏览器用户目录），可选 `browserBinary` 指定本机浏览器。现场需要代理时增加 `proxy: { server, bypass, username, password }`；运行器从已激活的浏览器读取终端凭证，也可通过受保护的 `credentialsFile` 预配。
+
+展厅生产包注册 `/sw.js` 缓存应用壳；终端至少在线同步一次后，封面、图片、视频、音频及展项正文可从本地启动。素材按 ETag/Last-Modified/Content-Length 校验，内容版本变化时整批刷新，缓存损坏会上报 `cache_broken`。管理员执行“离线冷启动自检”时，运行器会临时断网并重载 `/kiosk`，核对 Service Worker、展项数量和缓存素材数后恢复网络。
 
 Windows 或 Linux 专用终端要执行系统重启，需在本机配置 `allowSystemReboot: true`，赋予运行账户系统重启权限，并配置开机自动启动到可显示展厅的会话，继续使用同一 `profile`。运行器比较重启前后的系统启动标识后回执。Android 终端需要现场设备管理方案。
+
+## 门户入口与跨端单点
+
+门户首页读取 `sys_notice` 展示最新公告，并按系统参数 `biz.portal.helpUrl`、`biz.openapi.aiUrl`、`biz.openapi.caseUrl` 显示帮助和外部应用入口；参数留空时隐藏对应入口，帮助显示内置指引。待办卡片按后端 `todoLabels` 深链到批阅/审核页面或学生端栏目。学生端深链通过 `/portal/sso/student-ticket` 签发 60 秒一次性票据，学生端调用 `/edu/student/sso-login` 换取自身令牌，票据绑定 IP 与 User-Agent 且仅能使用一次。学生端地址由 `VUE_APP_STUDENT_URL` 配置，开发环境默认 `http://localhost:5173`。
 
 ## 许可
 

@@ -64,6 +64,19 @@ export const constantRoutes = [
   { path: '/', redirect: '/portal/index', hidden: true },
   { path: '/index', redirect: '/portal/index', hidden: true },
   {
+    path: '/ops/notice-template',
+    component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/ops/notice-template'),
+        name: 'NoticeTemplate',
+        meta: { title: '通知模板管理' }
+      }
+    ]
+  },
+  {
     path: '/lock',
     component: () => import('@/views/lock'),
     hidden: true,

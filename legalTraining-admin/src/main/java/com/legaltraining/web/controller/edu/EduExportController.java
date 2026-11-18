@@ -12,6 +12,8 @@ import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -28,6 +30,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import com.legaltraining.common.config.LegalTrainingConfig;
 import com.legaltraining.common.core.controller.BaseController;
 import com.legaltraining.common.core.domain.AjaxResult;
 import com.legaltraining.common.utils.SecurityUtils;
@@ -87,7 +94,8 @@ public class EduExportController extends BaseController
         List<Map<String, Object>> rows = jdbc.queryForList(sql);
         String[] header = {"任务ID", "任务名称", "学号", "姓名", "总分", "成绩状态(0待发布1已发布2已更正)", "发布时间"};
         String[] fields = {"task_id", "taskTitle", "student_no", "studentName", "final_score", "status", "publish_time"};
-        return doExport("score", filter, header, fields, rows);
+        String format = filter.get("format") == null ? "csv" : String.valueOf(filter.get("format"));
+        return doExport("score", filter, header, fields, rows, format);
     }
 
     /**
@@ -119,6 +127,31 @@ public class EduExportController extends BaseController
         String[] header = {"任务名称", "学号", "姓名", "版本", "正文", "状态(2已交3已批)", "提交时间", "附件清单"};
         String[] fields = {"taskTitle", "student_no", "studentName", "version", "content", "status", "submit_time", "files"};
         return doExport("result_package", filter, header, fields, rows);
+    }
+
+    /**
+     * 成果包归档导出（MG-04-02 / P6-N04）：按任务、学生、版本打包正文与附件文件，
+     * 含历史版本、导出清单和缺损附件报告。
+     */
+    @PreAuthorize("@ss.hasPermi('edu:export:package')")
+    @PostMapping("/package/archive")
+    public AjaxResult packageArchive(@RequestBody Map<String, Object> filter)
+    {
+        Long courseId = asLong(filter.get("courseId"));
+        Long taskId = asLong(filter.get("taskId"));
+        if (courseId == null && taskId == null)
+        {
+            return error("请指定 courseId 或 taskId");
+        }
+        requireExportScope(taskId, courseId);
+        String where = taskId != null ? " s.task_id = " + taskId : " tk.course_id = " + courseId;
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "select s.submission_id, tk.title as taskTitle, p.student_no, u.nick_name as studentName, s.version "
+            + "from edu_submission s join edu_task tk on tk.task_id = s.task_id "
+            + "join sys_user u on u.user_id = s.user_id "
+            + "left join edu_user_profile p on p.user_id = s.user_id "
+            + "where" + where + " and s.status in (2,3) order by p.student_no, tk.task_id");
+        return doArchive(filter, rows);
     }
 
     /**
@@ -188,7 +221,7 @@ public class EduExportController extends BaseController
         String permission = switch (String.valueOf(record.get("export_type")))
         {
             case "score" -> "edu:score:export";
-            case "result_package" -> "edu:export:package";
+            case "result_package", "result_package_zip" -> "edu:export:package";
             case "process_ledger" -> "edu:export:ledger";
             default -> "";
         };
@@ -205,8 +238,16 @@ public class EduExportController extends BaseController
         {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"export-" + id + ".csv\"")
+        String name = file.getFileName().toString();
+        String ext = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1).toLowerCase() : "csv";
+        MediaType mediaType = switch (ext)
+        {
+            case "xlsx" -> MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            case "zip" -> MediaType.parseMediaType("application/zip");
+            default -> MediaType.parseMediaType("text/csv; charset=UTF-8");
+        };
+        return ResponseEntity.ok().contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"export-" + id + "." + ext + "\"")
                 .body(new FileSystemResource(file));
     }
 
@@ -227,11 +268,18 @@ public class EduExportController extends BaseController
     private AjaxResult doExport(String type, Map<String, Object> filter,
             String[] header, String[] fields, List<Map<String, Object>> rows)
     {
+        return doExport(type, filter, header, fields, rows, "csv");
+    }
+
+    private AjaxResult doExport(String type, Map<String, Object> filter,
+            String[] header, String[] fields, List<Map<String, Object>> rows, String format)
+    {
         int rowCount = rows.size();
         boolean async = rowCount > ASYNC_THRESHOLD;
         final String fileId = IdUtils.fastSimpleUUID();
         final String dir = profile + "/export/" + type;
-        final String path = dir + "/" + fileId + ".csv";
+        final String ext = "xlsx".equalsIgnoreCase(format) ? "xlsx" : "csv";
+        final String path = dir + "/" + fileId + "." + ext;
         var key = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             var statement = connection.prepareStatement("insert into edu_export_log(export_type, filter_json, "
@@ -251,7 +299,7 @@ public class EduExportController extends BaseController
             exportExecutor.execute(() -> {
                 try
                 {
-                    writeCsv(path, header, fields, rows);
+                    writeExport(path, ext, header, fields, rows);
                     jdbc.update("update edu_export_log set status = 1 where id = ?", logId);
                 }
                 catch (Exception e)
@@ -264,7 +312,7 @@ public class EduExportController extends BaseController
         }
         try
         {
-            writeCsv(path, header, fields, rows);
+            writeExport(path, ext, header, fields, rows);
             jdbc.update("update edu_export_log set status = 1 where id = ?", logId);
         }
         catch (IOException e)
@@ -272,7 +320,7 @@ public class EduExportController extends BaseController
             jdbc.update("update edu_export_log set status = 2 where id = ?", logId);
             return error("导出文件生成失败：" + e.getMessage());
         }
-        return success(Map.of("exportId", logId, "async", false, "rowCount", rowCount));
+        return success(Map.of("exportId", logId, "async", false, "rowCount", rowCount, "format", ext));
     }
 
     private void writeCsv(String path, String[] header, String[] fields, List<Map<String, Object>> rows)
@@ -311,6 +359,227 @@ public class EduExportController extends BaseController
                 w.write(sb.toString());
                 w.write('\n');
             }
+        }
+    }
+
+    private void writeExport(String path, String ext, String[] header,
+            String[] fields, List<Map<String, Object>> rows) throws IOException
+    {
+        if ("xlsx".equals(ext))
+        {
+            writeXlsx(path, header, fields, rows);
+        }
+        else
+        {
+            writeCsv(path, header, fields, rows);
+        }
+    }
+
+    /** 正式 Excel 交付格式（MG-04-01） */
+    private void writeXlsx(String path, String[] header, String[] fields,
+            List<Map<String, Object>> rows) throws IOException
+    {
+        File f = new File(path);
+        if (!f.getParentFile().exists() && !f.getParentFile().mkdirs())
+        {
+            throw new IOException("无法创建目录 " + f.getParent());
+        }
+        try (XSSFWorkbook book = new XSSFWorkbook();
+             java.io.OutputStream out = new FileOutputStream(f))
+        {
+            Sheet sheet = book.createSheet("导出数据");
+            Row head = sheet.createRow(0);
+            for (int i = 0; i < header.length; i++)
+            {
+                head.createCell(i).setCellValue(header[i]);
+            }
+            int index = 1;
+            for (Map<String, Object> row : rows)
+            {
+                Row line = sheet.createRow(index++);
+                for (int i = 0; i < fields.length; i++)
+                {
+                    Object value = row.get(fields[i]);
+                    var cell = line.createCell(i);
+                    if (value instanceof Number number)
+                    {
+                        cell.setCellValue(number.doubleValue());
+                    }
+                    else
+                    {
+                        cell.setCellValue(value == null ? "" : String.valueOf(value));
+                    }
+                }
+            }
+            for (int i = 0; i < header.length; i++)
+            {
+                sheet.autoSizeColumn(i);
+            }
+            book.write(out);
+        }
+    }
+
+    /** 成果包归档的留痕与同步/异步调度 */
+    private AjaxResult doArchive(Map<String, Object> filter, List<Map<String, Object>> submissions)
+    {
+        int rowCount = submissions.size();
+        boolean async = rowCount > ASYNC_THRESHOLD;
+        final String fileId = IdUtils.fastSimpleUUID();
+        final String path = profile + "/export/result_package_zip/" + fileId + ".zip";
+        var key = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            var statement = connection.prepareStatement("insert into edu_export_log(export_type, filter_json, "
+                    + "row_count, file_path, operator_id, operate_time, status) values(?,?,?,?,?,now(),0)",
+                    Statement.RETURN_GENERATED_KEYS);
+            statement.setString(1, "result_package_zip");
+            statement.setString(2, toJson(filter));
+            statement.setInt(3, rowCount);
+            statement.setString(4, path);
+            statement.setLong(5, getUserId());
+            return statement;
+        }, key);
+        long logId = key.getKey().longValue();
+        if (async)
+        {
+            exportExecutor.execute(() -> {
+                try
+                {
+                    writeArchive(path, submissions);
+                    jdbc.update("update edu_export_log set status = 1 where id = ?", logId);
+                }
+                catch (Exception e)
+                {
+                    jdbc.update("update edu_export_log set status = 2 where id = ?", logId);
+                }
+            });
+            return success(Map.of("exportId", logId, "async", true, "rowCount", rowCount,
+                    "msg", "数据量较大，已转异步生成，可通过 /edu/export/tasks 查询进度"));
+        }
+        try
+        {
+            writeArchive(path, submissions);
+            jdbc.update("update edu_export_log set status = 1 where id = ?", logId);
+        }
+        catch (IOException e)
+        {
+            jdbc.update("update edu_export_log set status = 2 where id = ?", logId);
+            return error("成果包生成失败：" + e.getMessage());
+        }
+        return success(Map.of("exportId", logId, "async", false, "rowCount", rowCount));
+    }
+
+    /** 按任务 / 学生 / 版本打包正文、附件、导出清单与缺损报告（P6-N04） */
+    private void writeArchive(String path, List<Map<String, Object>> submissions) throws IOException
+    {
+        File f = new File(path);
+        if (!f.getParentFile().exists() && !f.getParentFile().mkdirs())
+        {
+            throw new IOException("无法创建目录 " + f.getParent());
+        }
+        StringBuilder manifest = new StringBuilder("\ufeff任务名称,学号,姓名,版本,正文文件,附件数,备注\n");
+        StringBuilder missing = new StringBuilder();
+        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(f)))
+        {
+            for (Map<String, Object> submission : submissions)
+            {
+                long submissionId = ((Number) submission.get("submission_id")).longValue();
+                int version = ((Number) submission.get("version")).intValue();
+                String base = safe(String.valueOf(submission.get("taskTitle"))) + "/"
+                        + safe(String.valueOf(submission.get("student_no"))) + "-"
+                        + safe(String.valueOf(submission.get("studentName"))) + "/";
+                for (int v = 1; v <= version; v++)
+                {
+                    String content;
+                    if (v == version)
+                    {
+                        content = jdbc.queryForObject("select content from edu_submission where submission_id=?",
+                                String.class, submissionId);
+                    }
+                    else
+                    {
+                        List<String> history = jdbc.queryForList(
+                                "select content from edu_submission_version where submission_id=? and version=?",
+                                String.class, submissionId, v);
+                        content = history.isEmpty() ? null : history.get(0);
+                    }
+                    String folder = base + "v" + v + "/";
+                    addEntry(zip, folder + "正文.txt", content == null ? "" : content);
+                    List<Map<String, Object>> files = jdbc.queryForList(
+                            "select file_id,file_name from edu_submission_file "
+                            + "where submission_id=? and version=? order by sort_no", submissionId, v);
+                    int copied = 0;
+                    int lost = 0;
+                    for (Map<String, Object> file : files)
+                    {
+                        String fileName = safe(String.valueOf(file.get("file_name")));
+                        Path source = resolveUpload((String) file.get("file_id"));
+                        if (source == null)
+                        {
+                            missing.append(folder).append("附件缺失或越界：").append(fileName).append('\n');
+                            lost++;
+                            continue;
+                        }
+                        zip.putNextEntry(new ZipEntry(folder + "附件/" + copied + "-" + fileName));
+                        Files.copy(source, zip);
+                        zip.closeEntry();
+                        copied++;
+                    }
+                    manifest.append(csvLine(new Object[] { submission.get("taskTitle"),
+                            submission.get("student_no"), submission.get("studentName"), v,
+                            folder + "正文.txt", copied, lost > 0 ? "附件缺失 " + lost + " 个" : "" }));
+                }
+            }
+            addEntry(zip, "导出清单.csv", manifest.toString());
+            addEntry(zip, "缺损附件报告.txt", missing.length() == 0 ? "无缺损附件" : missing.toString());
+        }
+    }
+
+    private static void addEntry(ZipOutputStream zip, String name, String text) throws IOException
+    {
+        zip.putNextEntry(new ZipEntry(name));
+        zip.write(text.getBytes(StandardCharsets.UTF_8));
+        zip.closeEntry();
+    }
+
+    private static String csvLine(Object[] values)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.length; i++)
+        {
+            if (i > 0) sb.append(',');
+            String value = values[i] == null ? "" : String.valueOf(values[i])
+                    .replace("\"", "\"\"").replace("\r", "").replace("\n", " ");
+            if (value.contains(",") || value.contains("\""))
+            {
+                sb.append('"').append(value).append('"');
+            }
+            else
+            {
+                sb.append(value);
+            }
+        }
+        return sb.append('\n').toString();
+    }
+
+    private static String safe(String name)
+    {
+        if (name == null || name.isBlank()) return "未命名";
+        return name.replaceAll("[\\\\/:*?\"<>|\\r\\n]", "_").trim();
+    }
+
+    /** 仅允许读取上传目录内的附件，与在线预览的越界校验一致 */
+    private Path resolveUpload(String fileId)
+    {
+        if (fileId == null || !fileId.matches("/profile/upload/[A-Za-z0-9_./-]+") || fileId.contains("..")) return null;
+        try
+        {
+            Path root = Path.of(LegalTrainingConfig.getUploadPath()).toAbsolutePath().normalize();
+            Path file = root.resolve(fileId.substring("/profile/upload/".length())).normalize();
+            return file.startsWith(root) && Files.isRegularFile(file) ? file : null;
+        }
+        catch (Exception e)
+        {
+            return null;
         }
     }
 

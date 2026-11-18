@@ -55,6 +55,13 @@ public class EduResource extends BaseEntity
     @Excel(name = "可见范围", readConverterExp = "0=仅本人,1=本课程,2=本班,3=全校")
     private Integer visibleScope;
 
+    /** visibleScope=2(本班)时的归属班级，其它范围为空（F03） */
+    @Excel(name = "归属班级")
+    private Long classId;
+
+    @Excel(name = "班级名称")
+    private String className;
+
     /** 是否允许下载（TC-02-04） */
     @Excel(name = "允许下载", readConverterExp = "1=允许,0=禁止")
     private String allowDownload;
@@ -209,6 +216,26 @@ public class EduResource extends BaseEntity
     public void setVisibleScope(Integer visibleScope)
     {
         this.visibleScope = visibleScope;
+    }
+
+    public Long getClassId()
+    {
+        return classId;
+    }
+
+    public void setClassId(Long classId)
+    {
+        this.classId = classId;
+    }
+
+    public String getClassName()
+    {
+        return className;
+    }
+
+    public void setClassName(String className)
+    {
+        this.className = className;
     }
 
     public String getAllowDownload()

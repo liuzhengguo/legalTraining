@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import com.legaltraining.business.edu.domain.EduTerm;
 import com.legaltraining.business.edu.mapper.EduTermMapper;
@@ -31,6 +32,9 @@ public class PortalServiceImpl implements IPortalService
 
     @Autowired
     private EduTermMapper eduTermMapper;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Override
     public Map<String, Object> index()
@@ -67,6 +71,16 @@ public class PortalServiceImpl implements IPortalService
                 "portal:todo:list", "待批、待审、待交、待授权", "message");
         result.put("cards", cards);
         result.put("todo", todo().get("counts"));
+        result.put("notices", jdbc.queryForList(
+                "select notice_id as noticeId, notice_title as title, notice_type as type, "
+                + "date_format(create_time,'%Y-%m-%d') as publishDate from sys_notice "
+                + "where status='0' order by create_time desc limit 5"));
+        Map<String, Object> links = new LinkedHashMap<>();
+        links.put("help", config("biz.portal.helpUrl"));
+        links.put("ai", config("biz.openapi.aiUrl"));
+        links.put("case", config("biz.openapi.caseUrl"));
+        result.put("links", links);
+        result.put("todoLabels", labels());
         return result;
     }
 
@@ -109,6 +123,14 @@ public class PortalServiceImpl implements IPortalService
         result.put("labels", labels());
         result.put("message", counts.get("total").equals(0) ? "暂无待办" : "共 " + counts.get("total") + " 项待办");
         return result;
+    }
+
+    /** 外链配置：留空表示未启用，前端据此隐藏入口 */
+    private String config(String key)
+    {
+        List<String> values = jdbc.queryForList(
+                "select config_value from sys_config where config_key=?", String.class, key);
+        return values.isEmpty() ? null : values.get(0);
     }
 
     private List<Map<String, Object>> labels()

@@ -28,6 +28,11 @@
   }
 }
 
+// 表格操作列：按钮保持单行显示，不换行；配合列 align="center" 居中
+.nowrap-actions .cell {
+  white-space: nowrap;
+}
+
 .fixed-width {
   .el-button--mini {
     padding: 7px 10px;

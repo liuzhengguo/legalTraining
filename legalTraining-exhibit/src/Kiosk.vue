@@ -6,8 +6,10 @@ const mediaOrigin = import.meta.env.VITE_GALLERY_MEDIA || ''
 const prefix = 'lt-device:' + api + ':'
 const credentialsKey = prefix + 'credentials'
 const manifestKey = prefix + 'manifest'
-const cacheName = prefix + 'covers'
+const metaKey = prefix + 'asset-meta'
+const mediaCacheName = prefix + 'media'
 let cacheBroken = false
+let cacheIssueReported = false
 const read = key => {
   try {
     const value = JSON.parse(localStorage.getItem(key))
@@ -15,14 +17,22 @@ const read = key => {
       cacheBroken = true
       return null
     }
+    if (key === metaKey && value !== null
+        && (!value.urls || typeof value.urls !== 'object' || Array.isArray(value.urls))) {
+      cacheBroken = true
+      return null
+    }
     return value
   } catch {
-    if (key === manifestKey) cacheBroken = true
+    if (key === manifestKey || key === metaKey) cacheBroken = true
     return null
   }
 }
+const storedMeta = read(metaKey)
 const credentials = ref(read(credentialsKey))
 const manifest = ref(read(manifestKey))
+const assetMeta = ref(storedMeta && storedMeta.urls ? storedMeta : { version: '', urls: {} })
+const cacheEpoch = ref(0)
 const configuration = ref({})
 const items = computed(() => manifest.value?.items || [])
 const selected = ref(0)
@@ -30,10 +40,12 @@ const browsing = ref(false)
 const current = computed(() => items.value[selected.value])
 const cover = ref('')
 const movie = ref('')
+const audio = ref('')
 const video = ref(null)
 const videoSource = computed(() => configuration.value.mode === 'lite' ? ''
   : imageSource(current.value?.media?.find(entry => entry.type === 'video')?.url))
-const offline = ref(false)
+const audioSource = computed(() => imageSource(current.value?.media?.find(entry => entry.type === 'audio')?.url))
+const offline = ref(typeof navigator !== 'undefined' ? !navigator.onLine : false)
 const busy = ref(false)
 const error = ref('')
 const form = ref({ deviceCode: '', activateCode: '' })
@@ -77,51 +89,131 @@ function interact() {
   }, (configuration.value.timeoutSeconds || 180) * 1000)
 }
 
-async function storeImages(rows, signal) {
-  if (!window.caches) return
-  try {
-    const cache = await caches.open(cacheName)
-    const URLs = new Set(rows.flatMap(row => [
-      imageSource(row.cover), ...(row.media || []).filter(entry => entry.type === 'video' || entry.type === 'image')
-        .map(entry => imageSource(entry.url))
-    ]).filter(Boolean))
-    await Promise.all([...URLs].map(async url => {
-      if (signal.aborted) return
-      if (await cache.match(url)) return
-      try {
-        const response = await fetch(url, { signal })
-        if (response.ok) await cache.put(url, response)
-      } catch { /* A failed asset does not block the playlist. */ }
-    }))
-    if (signal.aborted) return
-    for (const request of await cache.keys()) {
-      if (!URLs.has(request.url)) await cache.delete(request)
+function reportEvent(type, detail) {
+  const auth = credentials.value
+  if (!auth) return
+  fetch(api + '/device/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Device-Code': auth.deviceCode,
+      'X-Device-Token': auth.token },
+    body: JSON.stringify({ type, detail }),
+    keepalive: true
+  }).catch(() => {})
+}
+
+function assetSignature(response) {
+  const values = ['etag', 'last-modified', 'content-length'].map(key => response.headers.get(key) || '')
+  return values.some(Boolean) ? values.join('|') : 'opaque'
+}
+
+function desiredAssetUrls(rows) {
+  const urls = new Set()
+  for (const row of rows) {
+    const cover = imageSource(row.cover)
+    if (cover) urls.add(cover)
+    for (const entry of row.media || []) {
+      if (!['image', 'video', 'audio'].includes(entry.type)) continue
+      const url = imageSource(entry.url)
+      if (url) urls.add(url)
+      const entryCover = imageSource(entry.cover)
+      if (entryCover) urls.add(entryCover)
     }
-  } catch { /* Browser storage can be unavailable in private sessions. */ }
+  }
+  return urls
+}
+
+async function storeAssets(rows, signal) {
+  if (!window.caches) return 0
+  const urls = desiredAssetUrls(rows)
+  const version = manifest.value?.version || ''
+  try {
+    if (assetMeta.value.version && assetMeta.value.version !== version) {
+      await caches.delete(mediaCacheName)
+      assetMeta.value = { version, urls: {} }
+    } else if (!assetMeta.value.version) {
+      assetMeta.value = { version, urls: {} }
+    }
+    const cache = await caches.open(mediaCacheName)
+    let failed = 0
+    let changed = 0
+    await Promise.all([...urls].map(async url => {
+      if (signal.aborted) return
+      try {
+        let body
+        const head = await fetch(url, { method: 'HEAD', signal, cache: 'no-store' }).catch(() => null)
+        let signature
+        if (head && head.ok) {
+          signature = assetSignature(head)
+        } else {
+          body = await fetch(url, { signal, cache: 'no-store' })
+          if (!body.ok) throw new Error('Asset is unavailable')
+          signature = assetSignature(body)
+        }
+        if ((await cache.match(url)) && assetMeta.value.urls[url] === signature) return
+        if (!body) {
+          body = await fetch(url, { signal, cache: 'no-store' })
+          if (!body.ok) throw new Error('Asset is unavailable')
+        }
+        await cache.put(url, body.clone())
+        assetMeta.value.urls[url] = signature
+        changed += 1
+      } catch {
+        failed += 1
+      }
+    }))
+    if (signal.aborted) return failed
+    for (const request of await cache.keys()) {
+      if (!urls.has(request.url)) await cache.delete(request)
+    }
+    for (const url of Object.keys(assetMeta.value.urls)) {
+      if (!urls.has(url)) delete assetMeta.value.urls[url]
+    }
+    localStorage.setItem(metaKey, JSON.stringify(assetMeta.value))
+    if (changed > 0) cacheEpoch.value += 1
+    if (failed > 0 && !cacheIssueReported) {
+      cacheIssueReported = true
+      reportEvent('cache_broken', `本次有 ${failed} 个素材未进入本地缓存`)
+    }
+    return failed
+  } catch {
+    if (!cacheIssueReported) {
+      cacheIssueReported = true
+      reportEvent('cache_broken', '本地缓存不可用，请检查浏览器存储权限')
+    }
+    return urls.size
+  }
+}
+
+async function loadCached(url) {
+  if (!url || !window.caches) return ''
+  try {
+    const saved = await (await caches.open(mediaCacheName)).match(url)
+    return saved ? URL.createObjectURL(await saved.blob()) : ''
+  } catch {
+    return ''
+  }
 }
 
 function watchAsset(sourceOf, destination) {
-  watch(sourceOf, async (source, _, cleanup) => {
-    let url, cancelled = false
+  watch([sourceOf, cacheEpoch], async ([source], _, cleanup) => {
+    let objectUrl, cancelled = false
     cleanup(() => {
       cancelled = true
-      if (url) URL.revokeObjectURL(url)
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     })
     destination.value = source
     if (!source || !window.caches) return
-    try {
-      const saved = await (await caches.open(cacheName)).match(source)
-      if (saved && !cancelled) {
-        const blob = await saved.blob()
-        if (!cancelled) destination.value = url = URL.createObjectURL(blob)
-      }
-    } catch { /* The remote cover is still available when online. */ }
+    const cached = await loadCached(source)
+    if (cached && !cancelled) destination.value = objectUrl = cached
   }, { immediate: true })
 }
 watchAsset(() => imageSource(current.value?.cover), cover)
 watchAsset(() => offline.value ? videoSource.value : '', movie)
-watch([configuration, video], () => {
-  if (video.value) video.value.volume = (configuration.value.volume ?? 60) / 100
+watchAsset(audioSource, audio)
+watch([configuration, video, audio], () => {
+  const volume = (configuration.value.volume ?? 60) / 100
+  if (video.value) video.value.volume = volume
+  if (audio.value) audio.value.volume = volume
 })
 watch(videoSource, () => play())
 
@@ -145,17 +237,19 @@ async function synchronize() {
     const previous = manifest.value
     const result = await request('heartbeat', {
       cacheVersion: previous?.version || null,
-      cacheSize: previous ? new Blob([JSON.stringify(previous)]).size : 0
+      cacheSize: previous ? new Blob([JSON.stringify(previous), JSON.stringify(assetMeta.value)]).size : 0
     }, { 'X-Device-Code': credentials.value.deviceCode, 'X-Device-Token': credentials.value.token }, signal)
     if (!active) return
     if (!result) {
       credentials.value = null
       manifest.value = null
+      assetMeta.value = { version: '', urls: {} }
       clearTimeout(rotation)
       clearTimeout(idle)
       localStorage.removeItem(credentialsKey)
       localStorage.removeItem(manifestKey)
-      if (window.caches) await caches.delete(cacheName)
+      localStorage.removeItem(metaKey)
+      if (window.caches) await caches.delete(mediaCacheName)
       error.value = '终端授权已失效，请重新激活'
       return
     }
@@ -163,13 +257,7 @@ async function synchronize() {
     offline.value = false
     if (cacheBroken) {
       cacheBroken = false
-      fetch(api + '/device/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Device-Code': credentials.value.deviceCode,
-          'X-Device-Token': credentials.value.token },
-        body: JSON.stringify({ type: 'cache_broken', detail: '已检测到清单损坏并重新同步' }),
-        keepalive: true
-      }).catch(() => { cacheBroken = true })
+      reportEvent('cache_broken', '已检测到清单或缓存索引损坏并重新同步')
     }
     if (result.changed) {
       const currentId = current.value?.itemId
@@ -178,7 +266,7 @@ async function synchronize() {
       selected.value = Math.max(0, items.value.findIndex(item => item.itemId === currentId))
       play()
     }
-    await storeImages(items.value, signal)
+    await storeAssets(items.value, signal)
   } catch {
     if (active) offline.value = true
   } finally {
@@ -195,7 +283,10 @@ async function activate() {
     const data = await request('activate', form.value)
     if (!data?.token) throw new Error('设备激活失败')
     manifest.value = null
+    assetMeta.value = { version: '', urls: {} }
     localStorage.removeItem(manifestKey)
+    localStorage.removeItem(metaKey)
+    if (window.caches) await caches.delete(mediaCacheName)
     credentials.value = { deviceCode: form.value.deviceCode, token: data.token }
     localStorage.setItem(credentialsKey, JSON.stringify(credentials.value))
     form.value.activateCode = ''
@@ -205,8 +296,14 @@ async function activate() {
   } finally { busy.value = false }
 }
 
+function markOffline() {
+  offline.value = true
+  clearTimeout(heartbeat)
+}
+
 onMounted(() => {
   window.addEventListener('online', synchronize)
+  window.addEventListener('offline', markOffline)
   if (credentials.value) {
     play()
     synchronize()
@@ -217,6 +314,7 @@ onUnmounted(() => {
   controller?.abort()
   for (const timer of [heartbeat, rotation, idle]) clearTimeout(timer)
   window.removeEventListener('online', synchronize)
+  window.removeEventListener('offline', markOffline)
 })
 </script>
 
@@ -239,6 +337,8 @@ onUnmounted(() => {
                :poster="cover" autoplay muted playsinline controls @ended="advance" @error="play(true)" @stalled="play(true)" @playing="play()" />
         <img v-else-if="cover" :src="cover" alt="" class="item-card__cover">
         <div class="item-card__body">
+          <audio v-if="audioSource" :key="'audio-' + selected + ':' + current.itemId"
+                 :src="audio || audioSource" controls preload="none" class="item-card__audio" />
           <h1>{{ current.title }}</h1>
           <p>{{ current.summary }}</p>
           <p v-if="browsing || configuration.mode === 'lite'" class="content">{{ current.content }}</p>
@@ -258,5 +358,6 @@ onUnmounted(() => {
 .kiosk { min-height: 100vh; padding-block: 1rem; overscroll-behavior: contain; }
 .kiosk form, .kiosk nav { display: flex; flex-wrap: wrap; gap: 1rem; }
 .kiosk img, .kiosk video { display: block; max-height: 64vh; object-fit: contain; }
+.item-card__audio { display: block; width: min(100%, 420px); margin: 0 0 1rem; }
 .content { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

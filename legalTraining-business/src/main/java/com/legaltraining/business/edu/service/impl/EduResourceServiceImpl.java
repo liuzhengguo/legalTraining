@@ -3,12 +3,14 @@ package com.legaltraining.business.edu.service.impl;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.legaltraining.business.edu.domain.EduCourseResourceRef;
 import com.legaltraining.business.edu.domain.EduResource;
 import com.legaltraining.business.edu.domain.EduResourceCategory;
 import com.legaltraining.business.edu.mapper.EduResourceMapper;
@@ -61,6 +63,7 @@ public class EduResourceServiceImpl implements IEduResourceService
         {
             eduResource.setVisibleScope(1);
         }
+        checkScopeClass(eduResource);
         if (StringUtils.isEmpty(eduResource.getAllowDownload()))
         {
             eduResource.setAllowDownload("1");
@@ -94,6 +97,17 @@ public class EduResourceServiceImpl implements IEduResourceService
             merged.setExternalUrl(StringUtils.isNotEmpty(eduResource.getExternalUrl())
                     ? eduResource.getExternalUrl() : exist.getExternalUrl());
             checkTypeFields(merged);
+        }
+        // F03：合并后的可见范围与班级决定最终归属；改范围时同步清理/要求 classId
+        Integer effectiveScope = eduResource.getVisibleScope() == null ? exist.getVisibleScope() : eduResource.getVisibleScope();
+        Long effectiveClass = eduResource.getClassId() != null ? eduResource.getClassId() : exist.getClassId();
+        if (effectiveScope != null && effectiveScope == 2 && effectiveClass == null)
+        {
+            throw new ServiceException("本班资源必须选择归属班级");
+        }
+        if (effectiveScope != null && effectiveScope != 2)
+        {
+            eduResource.setClassId(null);
         }
         return eduResourceMapper.updateEduResource(eduResource);
     }
@@ -184,6 +198,46 @@ public class EduResourceServiceImpl implements IEduResourceService
     public int unlinkCourse(Long courseId, Long resourceId)
     {
         return eduResourceMapper.deleteCourseResource(courseId, resourceId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int saveCourseResources(Long courseId, List<EduCourseResourceRef> refs)
+    {
+        if (courseId == null)
+        {
+            throw new ServiceException("课程不能为空");
+        }
+        // 前端按顺序提交，去重时保留首次出现的位置，sortNo 即列表顺序
+        Set<Long> ordered = new LinkedHashSet<>();
+        if (refs != null)
+        {
+            for (EduCourseResourceRef ref : refs)
+            {
+                if (ref != null && ref.getResourceId() != null)
+                {
+                    ordered.add(ref.getResourceId());
+                }
+            }
+        }
+        for (Long resourceId : ordered)
+        {
+            mustExist(resourceId);
+        }
+        eduResourceMapper.deleteCourseResourcesByCourse(courseId);
+        int rows = 0;
+        int sortNo = 0;
+        for (Long resourceId : ordered)
+        {
+            rows += eduResourceMapper.insertCourseResource(courseId, resourceId, sortNo++);
+        }
+        return rows;
+    }
+
+    @Override
+    public List<Long> selectCourseIdsByResource(Long resourceId)
+    {
+        return eduResourceMapper.selectCourseIdsByResource(resourceId);
     }
 
     @Override
@@ -339,6 +393,22 @@ public class EduResourceServiceImpl implements IEduResourceService
             }
         }
         return roots;
+    }
+
+    /** F03：本班资源（scope=2）必须绑定班级，其它范围不保留班级，避免脏数据越权 */
+    private void checkScopeClass(EduResource res)
+    {
+        if (Integer.valueOf(2).equals(res.getVisibleScope()))
+        {
+            if (res.getClassId() == null)
+            {
+                throw new ServiceException("本班资源必须选择归属班级");
+            }
+        }
+        else
+        {
+            res.setClassId(null);
+        }
     }
 
     private void checkTypeFields(EduResource res)

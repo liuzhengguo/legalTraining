@@ -97,6 +97,9 @@ public class SecurityConfig
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             // 注解标记允许匿名访问的url
             .authorizeHttpRequests((requests) -> {
+                // F01：受控教学文件（/profile/upload/secure/**）禁止静态直链访问，
+                // 必须经带业务鉴权的接口读取。此规则必须在 /profile/** permitAll 之前声明。
+                requests.requestMatchers(HttpMethod.GET, "/profile/upload/secure/**").denyAll();
                 permitAllUrl.getUrls().forEach(url -> requests.requestMatchers(url).permitAll());
                 // 对于登录login 注册register 验证码captchaImage 允许匿名访问
                 requests.requestMatchers("/login", "/edu/student/login", "/register", "/captchaImage").permitAll()

@@ -114,7 +114,7 @@ public class EduGrantServiceImpl implements IEduGrantService
             warnings.add("该账号同时具备推荐与审核权限；推荐与审核须为不同账号，实际推荐/审核时系统会强制拦截");
         }
 
-        // 撤销教师：待批提交必须有接收人
+        // 撤销教师：先把名下课程（含待批提交）改派给接收人，交接成功才撤权
         if (beforeKeys.contains(ROLE_TEACHER) && !afterKeys.contains(ROLE_TEACHER))
         {
             int pending = eduGrantMapper.countPendingReviews(userId);
@@ -126,10 +126,14 @@ public class EduGrantServiceImpl implements IEduGrantService
                             + " 份待批阅提交，撤销前请选择待办交接人");
                 }
                 String receiver = checkReceiver(userId, transferToUserId, ROLE_TEACHER, "教师");
-                warnings.add(pending + " 份待批阅提交的交接人为「" + receiver + "」，请在批阅模块完成改派");
+                int courses = eduGrantMapper.transferTeacherCourses(userId, transferToUserId);
+                warnings.add("已将 " + pending + " 份待批阅提交随 " + courses + " 门课程改派给「" + receiver + "」");
+                recordTransfer(userId, transferToUserId, "教师角色撤销待办交接",
+                        "原负责人 " + user.getUserName() + " 撤销教师角色，" + pending + " 份待批阅提交随 "
+                                + courses + " 门课程交接给新负责人");
             }
         }
-        // 撤销审核员：待审成果必须有接收人
+        // 撤销审核员：先把待审成果的责任人改派给接收人，交接成功才撤权
         if (beforeKeys.contains(ROLE_AUDITOR) && !afterKeys.contains(ROLE_AUDITOR))
         {
             int pending = eduGrantMapper.countPendingAudits();
@@ -141,7 +145,11 @@ public class EduGrantServiceImpl implements IEduGrantService
                             + " 条待审成果，撤销审核员前请选择待办交接人");
                 }
                 String receiver = checkReceiver(userId, transferToUserId, ROLE_AUDITOR, "审核员");
-                warnings.add(pending + " 条待审成果的交接人为「" + receiver + "」，请在成果审核模块完成改派");
+                int changed = eduGrantMapper.transferPendingAudits(transferToUserId);
+                warnings.add("已将 " + changed + " 条待审成果改派给「" + receiver + "」");
+                recordTransfer(userId, transferToUserId, "审核员角色撤销待办交接",
+                        "原负责人 " + user.getUserName() + " 撤销审核员角色，" + changed
+                                + " 条待审成果交接给新负责人");
             }
         }
 
@@ -164,6 +172,13 @@ public class EduGrantServiceImpl implements IEduGrantService
     {
         return ids.stream().map(sysRoleService::selectRoleById)
                 .filter(java.util.Objects::nonNull).map(SysRole::getRoleKey).toList();
+    }
+
+    /** 交接留痕：交接双方各写一条站内通知，与撤权在同一事务内提交 */
+    private void recordTransfer(Long fromUserId, Long toUserId, String title, String content)
+    {
+        eduGrantMapper.insertTransferNotice(toUserId, title, content);
+        eduGrantMapper.insertTransferNotice(fromUserId, title, content);
     }
 
     private String checkReceiver(Long userId, Long transferToUserId, String roleKey, String roleName)

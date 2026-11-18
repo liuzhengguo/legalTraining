@@ -17,7 +17,7 @@
           <el-tag size="small" :type="types[row.status]">{{ states[row.status] || '未知' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="95" fixed="right" align="right">
+      <el-table-column label="操作" width="95" fixed="right" align="center" class-name="nowrap-actions">
         <template slot-scope="{ row }"><el-button type="text" @click="current = row; detailOpen = true">查看</el-button></template>
       </el-table-column>
     </el-table>

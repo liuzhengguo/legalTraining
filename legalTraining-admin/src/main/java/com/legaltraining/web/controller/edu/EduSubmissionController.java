@@ -5,8 +5,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import com.alibaba.fastjson2.JSON;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -265,6 +268,45 @@ public class EduSubmissionController extends BaseController
     public AjaxResult files(@PathVariable Long submissionId, @RequestParam(required = false) Integer version)
     {
         return success(eduSubmissionService.files(submissionId, version));
+    }
+
+    /**
+     * 批阅附件受控读取（F01）
+     * 学生提交附件落在受控目录，禁止静态直链。教师须有该任务的批阅权限，
+     * 且 fileId 必须属于该 submission 的某个版本，才允许读取内容。
+     */
+    @PreAuthorize("@ss.hasPermi('edu:review:query')")
+    @GetMapping("/{submissionId}/files/{fileId}/content")
+    public ResponseEntity<FileSystemResource> attachmentContent(@PathVariable Long submissionId,
+            @PathVariable String fileId, @RequestParam(defaultValue = "false") boolean download) throws IOException
+    {
+        EduSubmission submission = eduSubmissionService.selectById(submissionId);
+        if (submission == null)
+        {
+            return ResponseEntity.notFound().build();
+        }
+        eduSubmissionService.requireReviewAccess(submission.getTaskId());
+        // 仅允许读取确实登记在该提交任一版本下的附件，防止越权读取任意受控文件
+        EduSubmissionFile matched = null;
+        int version = submission.getVersion() == null ? 0 : submission.getVersion();
+        for (int v = 1; v <= version; v++)
+        {
+            for (EduSubmissionFile f : eduSubmissionService.files(submissionId, v))
+            {
+                if (fileId.equals(f.getFileId()))
+                {
+                    matched = f;
+                    break;
+                }
+            }
+            if (matched != null) break;
+        }
+        if (matched == null)
+        {
+            return ResponseEntity.notFound().build();
+        }
+        return StudentLearningController.serveFile(matched.getFileId(), matched.getFileName(),
+                matched.getFileExt(), download);
     }
 
     // ---------- 参数转换 ----------

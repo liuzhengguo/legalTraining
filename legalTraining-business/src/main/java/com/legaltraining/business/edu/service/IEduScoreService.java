@@ -27,6 +27,9 @@ public interface IEduScoreService
     /** 成绩更正（TC-04-06）：留痕 + 通知标记 */
     Map<String, Object> adjust(Long scoreId, BigDecimal newScore, String reason);
 
+    /** 组内加减分（TC-05-04）：设置 group_adjust 并重算 final_score，留痕 */
+    Map<String, Object> groupAdjust(Long scoreId, BigDecimal adjust, String reason);
+
     List<Map<String, Object>> adjustLog(Long scoreId);
 
     /** 课程总评计算（TC-05-04） */

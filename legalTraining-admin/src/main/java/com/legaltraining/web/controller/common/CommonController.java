@@ -136,6 +136,67 @@ public class CommonController
     }
 
     /**
+     * 受控教学文件上传（F01）
+     *
+     * 教学资源、学生提交附件、任务模板等受控文件必须走此端点，落到 upload/secure 子目录，
+     * 返回的 fileName 形如 /profile/upload/secure/YYYY/MM/DD/xxx。该前缀被 Spring Security
+     * 静态拒绝，只能经带业务鉴权的接口（serveFile）读取，避免知道路径即可绕过鉴权直取。
+     */
+    @PostMapping("/upload/secure")
+    public AjaxResult uploadSecureFile(MultipartFile file) throws Exception
+    {
+        try
+        {
+            String fileName = FileUploadUtils.upload(LegalTrainingConfig.getSecureUploadPath(), file);
+            mediaJournal.captureUpload(fileName);
+            AjaxResult ajax = AjaxResult.success();
+            ajax.put("url", serverConfig.getUrl() + fileName);
+            ajax.put("fileName", fileName);
+            ajax.put("newFileName", FileUtils.getName(fileName));
+            ajax.put("originalFilename", file.getOriginalFilename());
+            return ajax;
+        }
+        catch (Exception e)
+        {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 受控教学文件批量上传（F01），语义与单文件上传一致。
+     */
+    @PostMapping("/uploads/secure")
+    public AjaxResult uploadSecureFiles(List<MultipartFile> files) throws Exception
+    {
+        try
+        {
+            List<String> urls = new ArrayList<String>();
+            List<String> fileNames = new ArrayList<String>();
+            List<String> newFileNames = new ArrayList<String>();
+            List<String> originalFilenames = new ArrayList<String>();
+            for (MultipartFile file : files)
+            {
+                String fileName = FileUploadUtils.upload(LegalTrainingConfig.getSecureUploadPath(), file);
+                mediaJournal.captureUpload(fileName);
+                urls.add(serverConfig.getUrl() + fileName);
+                fileNames.add(fileName);
+                newFileNames.add(FileUtils.getName(fileName));
+                originalFilenames.add(file.getOriginalFilename());
+            }
+            AjaxResult ajax = AjaxResult.success();
+            ajax.put("urls", StringUtils.join(urls, FILE_DELIMITER));
+            ajax.put("fileNames", StringUtils.join(fileNames, FILE_DELIMITER));
+            ajax.put("newFileNames", StringUtils.join(newFileNames, FILE_DELIMITER));
+            ajax.put("originalFilenames", StringUtils.join(originalFilenames, FILE_DELIMITER));
+            return ajax;
+        }
+        catch (Exception e)
+        {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
+
+    /**
      * 本地资源通用下载
      */
     @GetMapping("/download/resource")
@@ -148,10 +209,18 @@ public class CommonController
             {
                 throw new Exception(StringUtils.format("资源文件({})非法，不允许下载。 ", resource));
             }
+            // F01：受控文件禁止经通用下载接口直读，必须走带业务鉴权的接口
+            String relative = FileUtils.stripPrefix(resource);
+            String normalized = relative == null ? "" : relative.replace('\\', '/');
+            if ("/upload/secure/".equals(normalized) || normalized.startsWith("/upload/secure/"))
+            {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "受控文件不允许通过通用下载接口访问");
+                return;
+            }
             // 本地资源路径
             String localPath = LegalTrainingConfig.getProfile();
             // 数据库资源地址
-            String downloadPath = localPath + FileUtils.stripPrefix(resource);
+            String downloadPath = localPath + relative;
             // 下载名称
             String downloadName = StringUtils.substringAfterLast(downloadPath, "/");
             response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);

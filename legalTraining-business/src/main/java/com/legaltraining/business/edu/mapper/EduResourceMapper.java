@@ -36,6 +36,9 @@ public interface EduResourceMapper
 
     int deleteCourseResource(@Param("courseId") Long courseId, @Param("resourceId") Long resourceId);
 
+    /** 清空课程下的资源关联（批量维护排序时先清后建） */
+    int deleteCourseResourcesByCourse(@Param("courseId") Long courseId);
+
     /** 课程资源清单 */
     List<EduResource> selectResourcesByCourse(@Param("courseId") Long courseId);
 

@@ -96,10 +96,31 @@ public class ExhibitController
 
     @GetMapping("/exh/item/list")
     @PreAuthorize("@ss.hasAnyPermi('exh:item:list,exh:publish:list')")
-    public AjaxResult items()
+    public AjaxResult items(@RequestParam(required = false) Long zoneId,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String keyword)
     {
-        return AjaxResult.success(jdbc.queryForList("select " + ITEM_FIELDS + ", source_rec as sourceRec"
-                + " from exh_item where del_flag='0' order by item_id desc"));
+        StringBuilder sql = new StringBuilder("select " + ITEM_FIELDS + ", source_rec as sourceRec"
+                + " from exh_item where del_flag='0'");
+        List<Object> args = new java.util.ArrayList<>();
+        if (zoneId != null)
+        {
+            sql.append(" and zone_id=?");
+            args.add(zoneId);
+        }
+        if (status != null)
+        {
+            sql.append(" and status=?");
+            args.add(status);
+        }
+        if (keyword != null && !keyword.isBlank())
+        {
+            sql.append(" and (title like ? or summary like ?)");
+            args.add("%" + keyword + "%");
+            args.add("%" + keyword + "%");
+        }
+        sql.append(" order by item_id desc");
+        return AjaxResult.success(jdbc.queryForList(sql.toString(), args.toArray()));
     }
 
     @GetMapping("/exh/item/{itemId}/source")
@@ -176,6 +197,28 @@ public class ExhibitController
         return AjaxResult.success(jdbc.queryForList("select date_format(timestampadd(hour,8,plan_time),"
                 + "'%Y-%m-%d %H:%i:%s') as planTime,status,retry_count as retryCount,"
                 + "fail_reason as failReason from exh_publish_job where item_id=?", itemId));
+    }
+
+    /** 运营复验：失败计划先重跑发布前校验，通过后按当前版本立即重试（EM-03-03） */
+    @PostMapping("/exh/item/{itemId}/schedule/reverify")
+    @PreAuthorize("@ss.hasPermi('exh:publish:list')")
+    @Transactional
+    public AjaxResult reverifySchedule(@PathVariable long itemId)
+    {
+        List<Map<String, Object>> jobs = jdbc.queryForList(
+                "select view_level from exh_publish_job where item_id=? and status=2", itemId);
+        if (jobs.isEmpty())
+        {
+            throw new ServiceException("没有失败的发布计划可复验");
+        }
+        Map<String, Object> item = item(itemId, true);
+        int level = ((Number) jobs.get(0).get("view_level")).intValue();
+        validatePublication(item, level);
+        jdbc.update("update exh_publish_job set status=0,retry_count=0,plan_time=utc_timestamp(),"
+                + "fail_reason=null,execute_time=null,item_version=? where item_id=? and status=2",
+                item.get("version"), itemId);
+        executeSchedule(itemId);
+        return AjaxResult.success();
     }
 
     @DeleteMapping("/exh/item/{itemId}/schedule")

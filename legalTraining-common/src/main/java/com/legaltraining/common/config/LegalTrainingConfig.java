@@ -112,10 +112,22 @@ public class LegalTrainingConfig
     }
 
     /**
-     * 获取上传路径
+     * 获取上传路径（公开文件：展厅素材、导入文件等）
      */
     public static String getUploadPath()
     {
         return getProfile() + "/upload";
     }
+
+    /**
+     * 受控教学文件专用目录（教学资源、学生提交附件、任务模板）。
+     * 该前缀下的文件禁止通过 /profile/** 静态直链访问，必须走带业务鉴权的接口读取（F01）。
+     */
+    public static String getSecureUploadPath()
+    {
+        return getUploadPath() + "/secure";
+    }
+
+    /** 受控文件在数据库中的 URL 前缀 */
+    public static final String SECURE_UPLOAD_URL_PREFIX = "/profile/upload/secure/";
 }

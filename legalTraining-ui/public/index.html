@@ -11,34 +11,77 @@
   <title><%= webpackConfig.name %></title>
   <!--[if lt IE 11]><script>window.location.href='/html/ie.html';</script><![endif]-->
   <style>
-    :root {
-      --lt-exhibition-hall: url('<%= BASE_URL %>exhibition-hall.webp');
-      --lt-login-art: linear-gradient(180deg, #45110c60, transparent 28%, #3d100ec7 100%),
-        #541914 var(--lt-exhibition-hall) center / cover no-repeat;
-      --lt-login-background: #fff7ea;
-      --lt-login-text: #471c15;
-    }
     html, body, #app { height: 100%; margin: 0; padding: 0; }
-    #loader-wrapper {
-      display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
-      min-height: 100vh; color: var(--lt-login-text); background: var(--lt-login-background);
+    .access-page {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+      padding: clamp(26px, 4vh, 56px) clamp(28px, 5vw, 128px) clamp(32px, 6vh, 88px);
+      box-sizing: border-box;
+      color: #441e19;
+      background:
+        linear-gradient(180deg, rgba(34, 10, 8, .72), transparent 30%, transparent 55%, rgba(34, 10, 8, .91)),
+        linear-gradient(90deg, rgba(34, 10, 8, .34), transparent 42%, rgba(34, 10, 8, .38)),
+        #361510 url('<%= BASE_URL %>exhibition-hall.webp') center / cover no-repeat;
       font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
     }
-    .boot-art {
-      display: flex; flex-direction: column; justify-content: space-between;
-      padding: clamp(28px, 5vw, 76px); color: white; background: var(--lt-login-art);
+    .access-brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      margin-bottom: 14px;
+      color: #fff9ef;
+      font-size: clamp(18px, 1.45vw, 27px);
+      font-weight: 700;
+      text-shadow: 0 2px 12px rgba(34, 10, 8, .7);
     }
-    .boot-mark {
-      display: grid; place-items: center; width: 38px; height: 38px; box-sizing: border-box;
-      border: 1px solid #e9d4b8; border-radius: 9px; color: #f4d9b4; font: 22px "Songti SC", SimSun, serif;
+    .access-mark {
+      display: grid;
+      flex: 0 0 42px;
+      place-items: center;
+      height: 42px;
+      border: 1px solid #a76d42;
+      border-radius: 9px;
+      background: #742b24;
+      color: #ffebcc;
+      font: 23px "Songti SC", SimSun, serif;
     }
-    .boot-art h1 {
-      margin: 15px 0 0; font: 700 clamp(38px, 5.4vw, 88px)/1.16 "Songti SC", "Noto Serif CJK SC", SimSun, serif;
+    .access-panel {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) clamp(342px, 27vw, 540px);
+      gap: clamp(24px, 4vw, 90px);
     }
-    .boot-content { display: grid; place-items: center; padding: 58px 32px 82px; }
-    .boot-status { width: min(100%, 392px); }
-    .boot-status h2 { margin: 0; font-size: clamp(27px, 3vw, 38px); font-weight: 750; letter-spacing: -.025em; }
-    .boot-status p { margin: 10px 0 20px; color: #76574a; font-size: 14px; }
+    .access-art {
+      display: flex;
+      align-items: flex-end;
+      color: #fff9ef;
+    }
+    .access-art h1 {
+      margin: 0;
+      font: 700 clamp(34px, 4.3vw, 96px)/1.2 "Songti SC", "Noto Serif CJK SC", SimSun, serif;
+      letter-spacing: .035em;
+      text-shadow: 0 3px 22px rgba(34, 10, 8, .65);
+    }
+    .access-art h1::before {
+      display: block;
+      width: clamp(36px, 4vw, 72px);
+      height: 2px;
+      margin-bottom: 18px;
+      background: #ddb581;
+      content: "";
+    }
+    .access-content {
+      align-self: center;
+      min-width: 0;
+      padding: clamp(30px, 3vw, 58px);
+      border: 1px solid #e4d2be;
+      border-radius: 18px;
+      background: #fffaf3;
+      box-shadow: 0 24px 72px rgba(34, 10, 8, .32);
+    }
+    .access-content > * { width: 100%; }
+    .access-content h2 { margin: 0; font-size: clamp(26px, 3vw, 36px); font-weight: 750; }
+    .access-content p { margin: 9px 0 20px; color: #76574a; font-size: 14px; }
     .boot-track { height: 4px; overflow: hidden; border-radius: 999px; background: #eedac4; }
     .boot-track::before {
       content: ""; display: block; width: 40%; height: 100%; border-radius: inherit;
@@ -48,28 +91,43 @@
     @media (prefers-reduced-motion: reduce) {
       .boot-track::before { animation: none; }
     }
-    @media (max-width: 740px) {
-      #loader-wrapper { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-      .boot-art { display: block; min-height: 188px; padding: 20px 24px; box-sizing: border-box; background-position: center 50%; }
-      .boot-art h1 { display: none; }
-      .boot-content { padding: 32px 22px 68px; }
+    @media (max-width: 760px) {
+      .access-page {
+        grid-template-rows: auto auto;
+        align-content: start;
+        padding: 20px 16px 28px;
+        background:
+          linear-gradient(180deg, rgba(34, 10, 8, .68), transparent 120px, #361510 350px),
+          #361510 url('<%= BASE_URL %>exhibition-hall.webp') center top / auto 380px no-repeat;
+      }
+      .access-mark { flex-basis: 36px; height: 36px; font-size: 20px; }
+      .access-panel { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+      .access-art { min-height: 142px; }
+      .access-art h1 { font-size: clamp(27px, 6vw, 42px); }
+      .access-art h1::before { margin-bottom: 10px; }
+      .access-content { width: 100%; max-width: 540px; justify-self: center; box-sizing: border-box; padding: 26px 20px 28px; }
     }
   </style>
 </head>
 <body>
   <div id="app">
-    <main id="loader-wrapper">
-      <section class="boot-art" aria-label="法律实训数字平台">
-        <span class="boot-mark" aria-hidden="true">法</span>
-        <h1>法律实训<br>数字平台</h1>
-      </section>
-      <section class="boot-content">
-        <div class="boot-status" role="status">
-          <h2>管理后台</h2>
-          <p>正在加载系统资源…</p>
-          <div class="boot-track" aria-hidden="true"></div>
-        </div>
-      </section>
+    <main id="loader-wrapper" class="access-page">
+      <header class="access-brand">
+        <span class="access-mark" aria-hidden="true">法</span>
+        <span>武汉理工大学法学院</span>
+      </header>
+      <div class="access-panel">
+        <section class="access-art">
+          <h1>法律实训数字平台</h1>
+        </section>
+        <section class="access-content">
+          <div role="status">
+            <h2>管理后台</h2>
+            <p>正在加载系统资源…</p>
+            <div class="boot-track" aria-hidden="true"></div>
+          </div>
+        </section>
+      </div>
     </main>
   </div>
 </body>

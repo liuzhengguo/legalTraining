@@ -18,6 +18,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="duration"      column="duration"       />
         <result property="cover"         column="cover"          />
         <result property="visibleScope"  column="visible_scope"  />
+        <result property="classId"       column="class_id"       />
+        <result property="className"     column="class_name"     />
         <result property="allowDownload" column="allow_download" />
         <result property="refCount"      column="ref_count"      />
         <result property="status"        column="status"         />
@@ -40,10 +42,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <sql id="selectEduResourceVo">
         select r.resource_id, r.title, r.category_id, c.category_name, r.res_type, r.file_id,
                r.file_name, r.file_size, r.file_ext, r.external_url, r.duration, r.cover,
-               r.visible_scope, r.allow_download, r.ref_count, r.status, r.owner_id,
+               r.visible_scope, r.class_id, cl.class_name, r.allow_download, r.ref_count, r.status, r.owner_id,
                u.nick_name as owner_name, r.create_time, r.update_time
         from edu_resource r
         left join edu_resource_category c on c.category_id = r.category_id
+        left join edu_class cl on cl.class_id = r.class_id
         left join sys_user u on u.user_id = r.owner_id
     </sql>
 
@@ -86,10 +89,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <insert id="insertEduResource" parameterType="EduResource" useGeneratedKeys="true" keyProperty="resourceId">
         insert into edu_resource (title, category_id, res_type, file_id, file_name, file_size, file_ext,
-                                  external_url, duration, cover, visible_scope, allow_download,
+                                  external_url, duration, cover, visible_scope, class_id, allow_download,
                                   ref_count, status, owner_id, del_flag, create_time)
         values (#{title}, #{categoryId}, #{resType}, #{fileId}, #{fileName}, #{fileSize}, #{fileExt},
-                #{externalUrl}, #{duration}, #{cover}, #{visibleScope}, #{allowDownload},
+                #{externalUrl}, #{duration}, #{cover}, #{visibleScope}, #{classId}, #{allowDownload},
                 0, #{status}, #{ownerId}, '0', sysdate())
     </insert>
 
@@ -107,6 +110,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="duration != null">duration = #{duration},</if>
             <if test="cover != null">cover = #{cover},</if>
             <if test="visibleScope != null">visible_scope = #{visibleScope},</if>
+            <!-- F03：本班范围写入归属班级；非本班或显式要求(visibleScope=1/0/3)时清空 -->
+            <choose>
+                <when test="classId != null">class_id = #{classId},</when>
+                <when test="visibleScope != null and visibleScope != 2">class_id = null,</when>
+            </choose>
             <if test="allowDownload != null and allowDownload != ''">allow_download = #{allowDownload},</if>
             <if test="status != null">status = #{status},</if>
             update_time = sysdate()
@@ -146,6 +154,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <delete id="deleteCourseResource">
         delete from edu_course_resource where course_id = #{courseId} and resource_id = #{resourceId}
+    </delete>
+
+    <delete id="deleteCourseResourcesByCourse">
+        delete from edu_course_resource where course_id = #{courseId}
     </delete>
 
     <select id="selectResourcesByCourse" parameterType="Long" resultMap="EduResourceResult">

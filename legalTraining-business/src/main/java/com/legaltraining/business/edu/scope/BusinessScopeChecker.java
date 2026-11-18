@@ -36,6 +36,9 @@ public class BusinessScopeChecker
     @Autowired
     private ISysDeptService sysDeptService;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     /**
      * 是否可访问指定班级
      */
@@ -99,6 +102,61 @@ public class BusinessScopeChecker
         if (!canAccessCourse(courseId))
         {
             throw new ServiceException("当前账号无权处理该课程");
+        }
+    }
+
+    /**
+     * F07：归档后成绩/成果写接口只读。按任务、课程或提交反查所属学期是否已归档。
+     * 课程/任务写接口已在各自服务内校验，这里供成绩、推荐、成果审核等写路径复用。
+     */
+    public void requireTermWritableByTask(Long taskId)
+    {
+        if (taskId == null) return;
+        Integer archived = jdbc.queryForObject(
+                "select count(1) from edu_task t join edu_course c on c.course_id=t.course_id "
+                + "join edu_term tm on tm.term_id=c.term_id where t.task_id=? and tm.status=2",
+                Integer.class, taskId);
+        if (archived != null && archived > 0)
+        {
+            throw new ServiceException("所属学期已归档，成绩与成果相关操作已锁定");
+        }
+    }
+
+    public void requireTermWritableByCourse(Long courseId)
+    {
+        if (courseId == null) return;
+        Integer archived = jdbc.queryForObject(
+                "select count(1) from edu_course c join edu_term tm on tm.term_id=c.term_id "
+                + "where c.course_id=? and tm.status=2", Integer.class, courseId);
+        if (archived != null && archived > 0)
+        {
+            throw new ServiceException("所属学期已归档，成绩与成果相关操作已锁定");
+        }
+    }
+
+    public void requireTermWritableBySubmission(Long submissionId)
+    {
+        if (submissionId == null) return;
+        Integer archived = jdbc.queryForObject(
+                "select count(1) from edu_submission s join edu_task t on t.task_id=s.task_id "
+                + "join edu_course c on c.course_id=t.course_id join edu_term tm on tm.term_id=c.term_id "
+                + "where s.submission_id=? and tm.status=2", Integer.class, submissionId);
+        if (archived != null && archived > 0)
+        {
+            throw new ServiceException("所属学期已归档，成绩与成果相关操作已锁定");
+        }
+    }
+
+    public void requireTermWritableByRec(Long recId)
+    {
+        if (recId == null) return;
+        Integer archived = jdbc.queryForObject(
+                "select count(1) from edu_recommendation r join edu_submission s on s.submission_id=r.submission_id "
+                + "join edu_task t on t.task_id=s.task_id join edu_course c on c.course_id=t.course_id "
+                + "join edu_term tm on tm.term_id=c.term_id where r.rec_id=? and tm.status=2", Integer.class, recId);
+        if (archived != null && archived > 0)
+        {
+            throw new ServiceException("所属学期已归档，成果相关操作已锁定");
         }
     }
 

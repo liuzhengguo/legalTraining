@@ -13,6 +13,16 @@ public interface EduGrantMapper
     /** 全校待审成果数（撤回审核员角色前的阻断检查） */
     public int countPendingAudits();
 
+    /** 撤销教师：把名下课程（含待批提交）整体改派给接收人 */
+    int transferTeacherCourses(@Param("fromUserId") Long fromUserId, @Param("toUserId") Long toUserId);
+
+    /** 撤销审核员：把待审成果的责任人改派给接收人 */
+    int transferPendingAudits(@Param("toUserId") Long toUserId);
+
+    /** 交接留痕：写入双方站内通知 */
+    int insertTransferNotice(@Param("receiverId") Long receiverId, @Param("title") String title,
+            @Param("content") String content);
+
     /** 班级所属院系 */
     public Long selectClassDeptId(Long classId);
 
